@@ -563,7 +563,7 @@ class ChainsawProcessor extends AudioWorkletProcessor {
     const out = outputs[0], ch = out[0];
     c.process(ch, ch.length, 0);
     for (let k = 1; k < out.length; k++) out[k].set(ch);
-    if (this.tel && (++this.blocks & 15) === 0) this.port.postMessage(c.snapshot());
+    if (this.tel && (++this.blocks & 3) === 0) this.port.postMessage(c.snapshot()); // telemetry every 4 blocks (~11.6 ms @44.1k): the recorded layers follow the firing rate closely
     return true;
   }
 }

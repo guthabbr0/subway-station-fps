@@ -82,7 +82,7 @@ class QuadPool {
         let dx = (x + this.vx[i] * e2) / ez2 - x / ez, dy = (y + this.vy[i] * e2) / ez2 - y / ez;
         const m = Math.hypot(dx, dy);
         if (m < 1e-7) { dx = 0; dy = 1; } else { dx /= m; dy /= m; }
-        const spd = m * ez / e2; ex = dx; ey = dy; hx = 0.5 * (size + Math.min(0.09, spd * this.stretch[i])); hy = 0.5 * size;
+        const spd = m * ez / e2; ex = dx; ey = dy; hx = 0.5 * (size + Math.min(0.07, spd * this.stretch[i])); hy = 0.5 * size;
         // ex,ey = along; across = (-ey, ex)
         const ax = -ey, ay = ex;
         pos[p] = x - ex * hx - ax * hy; pos[p + 1] = y - ey * hx - ay * hy; pos[p + 2] = z;
@@ -128,7 +128,7 @@ export class SawFX {
     const sp = rr(0.10, 0.22) * (0.7 + power * 0.7), s0 = rr(0.012, 0.02), s1 = rr(0.07, 0.12) * (0.8 + 0.4 * power);
     const lum = rr(0.85, 1.15);
     this.norm.spawn(CELL_PUFF, x + rr(-0.003, 0.003), y + rr(-0.003, 0.003), z, dx * sp + rr(-0.03, 0.03), dy * sp + rr(0.02, 0.07), dz * sp + rr(-0.03, 0.03), rr(0.55, 1.05) * (0.8 + 0.3 * power), s0, s1, 0, 0.05, 1.3, rr(-1.2, 1.2),
-      0.50 * lum, 0.58 * lum, 0.70 * lum, (0.075 + 0.11 * power) * rr(0.8, 1.2), 0.42 * lum, 0.48 * lum, 0.6 * lum, 0);
+      0.62 * lum, 0.68 * lum, 0.78 * lum, (0.13 + 0.17 * power) * rr(0.8, 1.2), 0.5 * lum, 0.56 * lum, 0.66 * lum, 0);
   }
   // ---- fuel-mix haze: very faint, bigger, slower cloud
   haze(x, y, z, dx, dy, dz) {
@@ -145,7 +145,7 @@ export class SawFX {
   sparks(x, y, z, dx, dy, dz, n, strength = 1) {
     for (let i = 0; i < n; i++) {
       const sp = rr(1.4, 4.6) * (0.7 + 0.5 * strength), sx = rr(-0.9, 0.9), sy = rr(-0.5, 1.0), sz = rr(-0.9, 0.9);
-      this.add.spawn(CELL_STREAK, x, y, z, (dx + sx * 0.7) * sp, (dy + sy * 0.7) * sp, (dz + sz * 0.7) * sp, rr(0.14, 0.42), rr(0.003, 0.0062), 0.002, 0.03 + Math.random() * 0.02, -4.2, 0.6, 0,
+      this.add.spawn(CELL_STREAK, x, y, z, (dx + sx * 0.7) * sp, (dy + sy * 0.7) * sp, (dz + sz * 0.7) * sp, rr(0.14, 0.4), rr(0.003, 0.0062), 0.002, 0.026 + Math.random() * 0.016, -8.5, 0.9, 0,
         3.4, 2.2, 0.8, 1.0, 1.4, 0.3, 0.05, 0.0);
     }
     // a couple of hot glints

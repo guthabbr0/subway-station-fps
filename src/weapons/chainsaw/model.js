@@ -2,13 +2,14 @@
 // Everything static is merged per material (few draw calls); the chain, trigger, cord, hands and arm are live parts. All materials that touch the
 // housing / bar / chain / gloves are CLONES of the kit's with the blood patch (see blood.js).
 import * as THREE from 'three';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Parts, Hand, textDecal } from '../kit_a.js';
-import { cloneBlood, swapMaterials } from './blood.js';
+import { toCreasedNormals, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Parts, Hand } from '../kit_a.js';
+import { cloneBlood, bloodify, swapMaterials } from './blood.js';
 import { makeChain, BAR } from './chain.js';
 import { getSawPaint } from './paint.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const SLEEVE = 0.40;                 // forearm length (m): long enough to leave the bottom of the frame, short enough never to reach the camera plane
 // hand-local centre of the loop the curled fingers make round a handle (the handle axis is the hand's local X axis through this point)
 export const GRIP = new THREE.Vector3(0, -0.026, -0.082);
 // wrist position for a hand with orientation q whose grip centre must sit at T
@@ -29,6 +30,40 @@ function cheapBoxes(P) {
   return P;
 }
 
+// merge the meshes hanging directly off a finger joint by material (a finger was 9 draw calls: cylinder + knuckle sphere + ring per phalanx)
+function mergeJointMeshes(j) {
+  const by = new Map();
+  for (const m of [...j.children]) {
+    if (!m.isMesh) continue;
+    m.updateMatrix(); const g = m.geometry.clone(); g.applyMatrix4(m.matrix); j.remove(m);
+    let a = by.get(m.material); if (!a) by.set(m.material, a = []); a.push(g);
+  }
+  for (const [mat, gs] of by) { const mesh = new THREE.Mesh(gs.length > 1 ? mergeGeometries(gs, false) : gs[0], mat); mesh.frustumCulled = false; j.add(mesh); }
+}
+
+// Every sticker / engraving of the saw in ONE transparent mesh: a small canvas atlas + merged quads (four separate canvases and draw calls before).
+// item: { rect: [x, y, w, h] px in the atlas, size: [w, h] metres, pos: [x, y, z] saw-local (quad faces -X), text: [lines], o: textDecal-style options }
+function makeDecals(items, U) {
+  const W = 1024, H = 512, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'), geos = [];
+  for (const it of items) {
+    const [ax, ay, pw, ph] = it.rect, o = it.o || {};
+    if (o.bg) { g.fillStyle = o.bg; g.fillRect(ax, ay, pw, ph); }
+    g.save(); g.beginPath(); g.rect(ax, ay, pw, ph); g.clip();
+    g.fillStyle = o.color ?? 'rgba(235,235,225,0.85)'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = `${o.weight ?? 'bold'} ${Math.round(ph * (o.size ?? 0.72))}px ${o.font ?? 'Arial Narrow, Arial, sans-serif'}`;
+    if (o.spacing && 'letterSpacing' in g) g.letterSpacing = o.spacing;
+    it.text.forEach((t, i) => g.fillText(t, ax + pw / 2, ay + ph * (i + 0.5) / it.text.length));
+    g.restore();
+    const q = new THREE.PlaneGeometry(it.size[0], it.size[1]), uv = q.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (ax + uv.getX(i) * pw) / W, 1 - (ay + (1 - uv.getY(i)) * ph) / H);
+    q.rotateY(-Math.PI / 2); q.translate(it.pos[0], it.pos[1], it.pos[2]); geos.push(q);
+  }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(mergeGeometries(geos, false), bloodify(new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6, metalness: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), U, { key: 'decal' }));   // stickers get bloody like everything else
+  for (const q of geos) q.dispose();
+  mesh.frustumCulled = false; mesh.name = 'decals'; return mesh;
+}
+
 export function buildSaw(game, kit, U) {
   const M = kit.M;
   const out = { pts: {} };
@@ -42,6 +77,8 @@ export function buildSaw(game, kit, U) {
   const swap = new Map(); for (const k of shared) swap.set(M[k], cloneBlood(M[k], U));
   swap.set(M.orange, getSawPaint(game, kit).makeOrange(U));
   swap.get(M.bar).color.set(0xb4bcc8); swap.get(M.bar).roughness = 0.5;
+  swap.get(M.leather).color.setRGB(2.2, 1.85, 1.4);      // tan work gloves: the dark-brown kit leather vanished against the black handles
+  swap.get(M.fabric).color.setRGB(1.35, 1.35, 1.25);
   out.materials = [...swap.values()];
 
   // =================================================================================================================================
@@ -64,7 +101,7 @@ export function buildSaw(game, kit, U) {
   // ---- chain brake hand guard (orange, hinged) with hazard strip
   F.box(M.orange, [0.112, 0.040, 0.010], [0, 0.166, -0.240], [0.52, 0, 0], 0.005);
   F.box(M.trim, [0.104, 0.007, 0.011], [0, 0.152, -0.228], [0.52, 0, 0], 0.002);
-  for (const s of [-1, 1]) { F.box(M.sawPlastic, [0.010, 0.046, 0.016], [s * 0.056, 0.150, -0.222], [0.52, 0, 0], 0.004); F.cyl(M.steel, 0.006, 0.006, 0.010, 'x', [s * 0.0555, 0.128, -0.207], null, 10); }
+  for (const s of [-1, 1]) { F.box(M.sawPlastic, [0.010, 0.030, 0.016], [s * 0.056, 0.160, -0.226], [0.52, 0, 0], 0.004); F.cyl(M.steel, 0.006, 0.006, 0.010, 'x', [s * 0.0555, 0.146, -0.214], null, 10); }   // (short struts: the label sits just below them)
   // ---- air filter cover with ribs, primer bulb, choke lever
   F.box(M.sawPlastic, [0.090, 0.026, 0.102], [0, 0.153, -0.036], [0.08, 0, 0], 0.011);
   for (let i = 0; i < 7; i++) F.box(M.black, [0.066, 0.0026, 0.0055], [0, 0.1665 - i * 0.0006, -0.010 - i * 0.0125], [0.08, 0, 0], 0.001);
@@ -123,13 +160,14 @@ export function buildSaw(game, kit, U) {
   F.tube(M.sawPlastic, [[0, 0.049, 0.062], [0, 0.028, 0.068], [0, 0.008, 0.058], [0, -0.004, 0.036]], 0.0085, [0, 0, 0], 18);  // trigger guard loop
   F.box(hazard, [0.0105, 0.0125, 0.026], [0, 0.0655, 0.010], [0.15, 0, 0], 0.003);                             // throttle lockout
   // ---- text / stickers
-  F.box(M.black, [0.0016, 0.034, 0.134], [-0.0549, 0.110, -0.212], null, 0.0006);
-  const lab = textDecal(['REAPER 660'], 0.128, 0.028, { px: 512, color: 'rgba(250,244,232,0.95)', size: 0.80, weight: '900', font: 'Impact, Arial Black, sans-serif' });
-  lab.position.set(-0.0559, 0.110, -0.212); lab.rotation.y = -Math.PI / 2; saw.add(lab); out.label = lab;
-  const warn = textDecal(['DANGER', 'BLADE'], 0.042, 0.034, { px: 128, bg: 'rgba(238,186,20,0.96)', color: 'rgba(15,15,15,0.95)', size: 0.36 });
-  warn.position.set(-0.0548, 0.066, -0.118); warn.rotation.y = -Math.PI / 2; saw.add(warn);
-  const skull = textDecal(['☠'], 0.030, 0.030, { px: 96, color: 'rgba(240,235,225,0.85)', size: 0.95, font: 'Arial, sans-serif' });
-  skull.position.set(-0.0790, 0.076, -0.058); skull.rotation.y = -Math.PI / 2; saw.add(skull);
+  F.box(M.black, [0.0016, 0.030, 0.082], [-0.0549, 0.113, -0.258], null, 0.0006);
+  const IMPACT = 'Impact, Arial Black, sans-serif';
+  saw.add(makeDecals([
+    { rect: [0, 0, 1024, 57], size: [0.19, 0.0105], pos: [BAR.X - 0.0046, BAR.Y + 0.0195, -0.56], text: ['REAPER   \u00b7   18 IN   \u00b7   .325'], o: { color: 'rgba(214,220,230,0.78)', size: 0.86, weight: '800', font: IMPACT, spacing: '2px' } },
+    { rect: [0, 80, 512, 158], size: [0.078, 0.024], pos: [-0.0559, 0.113, -0.258], text: ['REAPER'], o: { color: 'rgba(250,244,232,0.96)', size: 0.66, weight: '900', font: IMPACT, spacing: '3px' } },
+    { rect: [544, 80, 256, 207], size: [0.042, 0.034], pos: [-0.0548, 0.066, -0.118], text: ['DANGER', 'BLADE'], o: { bg: 'rgba(238,186,20,0.96)', color: 'rgba(15,15,15,0.95)', size: 0.36 } },
+    { rect: [832, 80, 160, 160], size: [0.030, 0.030], pos: [-0.0790, 0.076, -0.058], text: ['\u2620'], o: { color: 'rgba(240,235,225,0.85)', size: 0.95, font: 'Arial, sans-serif' } },
+  ], U));
   const fuelWin = new THREE.Mesh(new THREE.PlaneGeometry(0.054, 0.028), fuelMat); fuelWin.position.set(-0.0522, 0.004, -0.170); fuelWin.rotation.y = -Math.PI / 2; saw.add(fuelWin);
 
   // =================================================================================================================================
@@ -146,8 +184,6 @@ export function buildSaw(game, kit, U) {
   B.cyl(M.steel, 0.0032, 0.0032, 0.0096, 'x', [BAR.X, BAR.Y, BAR.ZT], null, 8);
   for (const y of [-0.0288, 0.0288]) B.box(M.dark, [0.0060, 0.0018, 0.44], [BAR.X, BAR.Y + y, -0.545], null, 0.0006);                           // chain rails
   out.bar = B.build('bar'); saw.add(out.bar);
-  { const t = textDecal(['REAPER   ·   18 IN   ·   .325'], 0.19, 0.0105, { px: 640, color: 'rgba(214,220,230,0.78)', size: 0.86, weight: '800', font: 'Impact, Arial Black, sans-serif', spacing: '2px' });
-    t.position.set(BAR.X - 0.0046, BAR.Y + 0.0195, -0.56); t.rotation.y = -Math.PI / 2; saw.add(t); }
 
 
   // =================================================================================================================================
@@ -159,7 +195,7 @@ export function buildSaw(game, kit, U) {
   // ---- pull cord: rope (thin cylinder stretched between the eyelet and the handle) + T handle
   out.cord = { eye: V(-0.0775, 0.036, -0.090), rest: V(-0.084, 0.030, -0.100), dir: V(-0.10, 0.28, 0.96).normalize(), handle: new THREE.Group(), rope: null };
   { const Hp = new Parts(); Hp.box(M.trim, [0.038, 0.014, 0.014], [0, 0, 0], null, 0.005); Hp.box(M.rubber, [0.030, 0.017, 0.017], [0, 0, 0], null, 0.006); Hp.cyl(M.dark, 0.006, 0.006, 0.010, 'y', [0, 0.010, 0], null, 8); out.cord.handle.add(Hp.build('cordHandle')); saw.add(out.cord.handle);
-    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 6), new THREE.MeshStandardMaterial({ color: 0x17130e, roughness: 0.85, metalness: 0 })); rope.frustumCulled = false; saw.add(rope); out.cord.rope = rope; }
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.0029, 0.0029, 1, 6), new THREE.MeshStandardMaterial({ color: 0x6e6450, roughness: 0.9, metalness: 0 })); rope.frustumCulled = false; saw.add(rope); out.cord.rope = rope; }
 
   // ---- chain
   out.chain = makeChain(kit, U, saw);
@@ -167,15 +203,24 @@ export function buildSaw(game, kit, U) {
 
   // =================================================================================================================================
   // HANDS
-  out.handR = new Hand(kit, { side: 'R', freeze: true, keep: ['index'], sleeveLen: 0.5,
+  out.handR = new Hand(kit, { side: 'R', freeze: true, keep: ['index'], sleeveLen: SLEEVE,
     pose: { i: [0.50, 0.62, 0.45], m: [1.42, 1.50, 0.95], r: [1.46, 1.55, 0.95], p: [1.44, 1.55, 0.9], t: { yaw: 0.10, pitch: -0.95, roll: 0.15, c: [0.10, 0.25, 0.30] } } });
-  out.idxF = out.handR.find('index');
+  out.idxF = out.handR.find('index'); for (const j of out.idxF.joints) mergeJointMeshes(j);
   { const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, -0.08, -Math.PI / 2, 'YXZ')), p = new THREE.Vector3();
     gripPose(V(0.0, -0.004, 0.0955), q, p); out.handR.group.position.copy(p); out.handR.group.quaternion.copy(q); saw.add(out.handR.group); }
-  out.handL = new Hand(kit, { side: 'L', freeze: true, sleeveLen: 0.5,
+  out.handL = new Hand(kit, { side: 'L', freeze: true, sleeveLen: SLEEVE,
     pose: { i: [1.35, 1.55, 1.0], m: [1.40, 1.6, 1.0], r: [1.42, 1.6, 1.0], p: [1.40, 1.6, 1.0], t: { yaw: 0.35, pitch: -0.35, roll: 0.9, c: [0.20, 0.55, 0.6] } } });
   out.handL.group.position.set(0, 0, 0); out.handL.group.rotation.set(0, 0, 0);
   out.lhPivot = new THREE.Group(); out.lhPivot.rotation.order = 'YXZ'; out.lhPivot.add(out.handL.group); saw.add(out.lhPivot);
+  // hi-vis band + reflective stripes on both sleeves (a metro-worker jacket breaks up the plain olive tube): merged into each arm's existing vertex-colour mesh
+  { const vcm = (hex) => ({ isVC: true, name: 'hv', color: new THREE.Color(hex), target: M.vcDull, userData: { uv: 8 } }), yel = vcm(0x7c8316), sil = vcm(0xa4acb4);
+    const rad = (z) => 0.0405 + 0.0075 * ((z - 0.05) / SLEEVE);
+    for (const h of [out.handL, out.handR]) {
+      const P = new Parts(); P.cyl(yel, rad(0.170) + 0.0014, rad(0.210) + 0.0014, 0.040, 'z', [0, 0, 0.190], null, 22);
+      for (const z of [0.178, 0.202]) P.cyl(sil, rad(z - 0.002) + 0.0021, rad(z + 0.002) + 0.0021, 0.004, 'z', [0, 0, z], null, 22);
+      const ex = h.arm.children.find((m) => m.isMesh && m.material === M.vcDull), g2 = P.geometry(M.vcDull);
+      if (ex) { const old = ex.geometry; ex.geometry = mergeGeometries([old, g2], false); old.dispose(); g2.dispose(); } else h.arm.add(Object.assign(new THREE.Mesh(g2, M.vcDull), { frustumCulled: false }));
+    } }
   out.handR.bake(F, saw);
 
   // ---- finish static body (merged per material)

@@ -58,8 +58,9 @@ export function buildTrain() {
   // ---- door leaves (near side, instanced): 3 cars x 2 doors x 2 leaves ----
   const leafGB = new GB(0.5); addLeaf(leafGB, 0, -0.025, 0.05, -1, 0.9);
   const leafGlassGB = new GB(1); leafGlassGB.quad([-0.22, 1.1, -0.025], [0.22, 1.1, -0.025], [0.22, 2.05, -0.025], [-0.22, 2.05, -0.025], [1, 1, 1], [[0.2, 0.15], [0.55, 0.15], [0.55, 0.6], [0.2, 0.6]], [0, 0, -1]);
-  const leafMesh = new THREE.InstancedMesh(leafGB.build(), M.body, K.CAR_COUNT * 4);
-  const leafGlass = new THREE.InstancedMesh(leafGlassGB.build(), M.glass, K.CAR_COUNT * 4);
+  // instanced meshes get their OWN material objects: a material drawn both instanced and plain makes three re-derive its program (getProgram) on every alternation, every frame
+  const leafMesh = new THREE.InstancedMesh(leafGB.build(), M.body.clone(), K.CAR_COUNT * 4);
+  const leafGlass = new THREE.InstancedMesh(leafGlassGB.build(), M.glass.clone(), K.CAR_COUNT * 4);
   leafMesh.frustumCulled = leafGlass.frustumCulled = false; leafGlass.renderOrder = 2;
   body.add(leafMesh, leafGlass);
 

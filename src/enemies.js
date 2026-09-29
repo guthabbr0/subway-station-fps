@@ -51,6 +51,11 @@ export function create(game) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffb060, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false }));
       m.visible = false; m.position.y = 0.06; m.frustumCulled = false; game.scene.add(m); rings.push({ mesh: m, t: 0, dur: 0.5, r: 8, on: false });
     }
+    try { // upload every head / forearm variant geometry now (they were uploaded lazily on first use: a variable amount of GPU-side work in the middle of a wave)
+      const r = game.renderer, tmp = new THREE.Scene(), mat = new THREE.MeshBasicMaterial(), rt = new THREE.WebGLRenderTarget(4, 4);
+      for (const t of TYPE_NAMES) for (const g of Object.values(getTemplate(t).merged)) { const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.scale.setScalar(1e-4); tmp.add(m); }
+      const prev = r.getRenderTarget(); r.setRenderTarget(rt); r.render(tmp, game.camera); r.setRenderTarget(prev); rt.dispose(); mat.dispose();
+    } catch (e) { console.warn('[enemies] geometry pre-upload skipped', e); }
     try { // upload textures + compile shaders now so the first spawn of each type does not hitch
       const r = game.renderer, tmp = new THREE.Group();
       for (const t of TYPE_NAMES) { const tpl = getTemplate(t); for (const o of tpl.outfits) r.initTexture(o.map); }

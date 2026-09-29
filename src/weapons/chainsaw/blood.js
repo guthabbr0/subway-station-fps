@@ -18,7 +18,7 @@ float bf(vec3 p){ float s = bn(p) * 0.6; p = BR * p * 2.17 + 3.7; s += bn(p) * 0
 vec3 bw(vec3 p){ return vec3(bn(p), bn(p + 13.7), bn(p + 29.3)) - 0.5; }              // domain warp: organic blobs instead of grid-aligned ones
 float bloodMask(vec3 p){
   float front = smoothstep(0.0, -0.5, p.z);                                          // more blood toward the business end
-  float c = clamp(pow(uBlood, 1.2) * (0.92 + 0.30 * front), 0.0, 1.0);
+  float c = clamp(pow(uBlood, 1.2) * (0.92 + 0.30 * front), 0.0, 0.78);              // never fully painted: some orange always shows through
   vec3 q = p * 150.0; q += bw(q * 0.33) * 2.6;                                       // fine spatter (a few mm)
   float dots = (bf(q) - 0.5) * 2.2 + 0.5;
   vec3 s = p * vec3(44.0, 48.0, 14.0); s += bw(s * 0.45 + 5.0) * 1.8;               // wipes, elongated along the bar
@@ -48,7 +48,7 @@ export function bloodify(mat, U, opts = {}) {
         float bmv = 0.0;
         if (uBlood > 0.003) {
           bmv = bloodMask(vBP);
-          vec3 bcol = mix(vec3(0.030, 0.005, 0.004), vec3(0.20, 0.007, 0.008), uFresh);
+          vec3 bcol = mix(vec3(0.030, 0.005, 0.004), vec3(0.15, 0.005, 0.006), uFresh);
           diffuseColor.rgb = mix(diffuseColor.rgb, bcol * (0.65 + 0.7 * bn(vBP * 120.0)), bmv * 0.95);
         }`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor, mix(0.55, 0.14, uFresh), bmv);')

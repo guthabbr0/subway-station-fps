@@ -1,351 +1,285 @@
-// Shared viewmodel kit for the heavy weapons (chaingun, rocket, plasma, bfg): geometry builder (merges by material),
-// procedural textures/materials, gloved hands, smoke/steam puffs, LCD displays, view->world helpers.
+// Shared "hero" kit for the heavy weapons (chaingun, rocket launcher, plasma rifle, BFG-9000).
+// Builds on kit_a (materials, Parts builder, articulated gloved Hand) and adds: canvas-painted PBR plating (albedo + normal + ORM), an extended
+// parts builder (crisp lathes, native-UV mode, bolt circles), a merged decal atlas (all stencils of one weapon = one draw call), pooled view-space
+// puffs, LCD readouts, ribbon arcs (energy crackle), projectile helpers and a render-target-aware shader pre-warm.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { canvasTexture, mulberry32 } from '../texutil.js';
+import { getKit, Parts, Hand, keyframe, smooth } from './kit_a.js';
+import { makeLayout, plateNormal, paintAlbedo, paintORM, mk, mkTex, hazardStripes } from './hero/paint.js';
+import { mulberry32 } from '../texutil.js';
 
 export const DEG = Math.PI / 180;
+export { Parts, Hand, keyframe, smooth, getKit };
+export * from './hero/paint.js';
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Hero materials (built once, cached on game.__hero)
+// ---------------------------------------------------------------------------------------------------------------------------------
+export function getHero(game) {
+  if (game.__hero) return game.__hero;
+  const kit = getKit(game), env = kit.env, M = kit.M, T = {}, H = {};
+  const pbr = (name, o, uv) => { const m = new THREE.MeshStandardMaterial({ envMap: env, ...o }); m.name = name; m.userData.uv = uv; H[name] = m; return m; };
+  const ns = (v) => new THREE.Vector2(v, v);
+
+  // --- military plating (rocket launcher tube, ammo box, chaingun receiver): heavy rivets + weld seams
+  const lm = makeLayout(101, { cols: 2, rows: 3, weld: 0.34, rivetGap: 24, chips: 110, scratches: 50, dents: 8 });
+  T.milN = plateNormal(lm, { seed: 101, strength: 2.7 }); T.milNormal = T.milN.texture;
+  T.olive = paintAlbedo(lm, { base: '#66704a', seed: 111, tints: ['rgba(20,26,10,0.16)', 'rgba(150,160,100,0.08)'], chip: '#8d939a', stain: 'rgba(60,40,20,0.4)', speck: 0.06 });
+  T.oliveOrm = paintORM(lm, { seed: 112, rough: 0.66, metal: 0.05 });
+  T.gun = paintAlbedo(lm, { base: '#575e68', seed: 121, tints: ['rgba(0,0,0,0.18)', 'rgba(140,150,170,0.06)'], chip: '#9096a0', stain: 'rgba(40,30,22,0.4)', speck: 0.05 });
+  T.gunOrm = paintORM(lm, { seed: 122, rough: 0.48, metal: 0.3 });
+  pbr('olive', { map: T.olive, normalMap: T.milNormal, normalScale: ns(0.9), roughnessMap: T.oliveOrm, metalnessMap: T.oliveOrm, roughness: 1, metalness: 1, envMapIntensity: 0.9 }, 3.4);
+  pbr('gunmetal', { map: T.gun, normalMap: T.milNormal, normalScale: ns(1.15), roughnessMap: T.gunOrm, metalnessMap: T.gunOrm, roughness: 1, metalness: 1, envMapIntensity: 1.5 }, 3.4);
+
+  // --- plasma rifle: pale ceramic armour + dark chassis, fine panel lines, few rivets
+  const lp = makeLayout(201, { cols: 3, rows: 3, weld: 0, rivetGap: 64, rivetOff: 10, chips: 44, scratches: 34, dents: 4 });
+  T.plateN = plateNormal(lp, { seed: 201, strength: 2.0, groove: 3.0 }); T.plateNormal = T.plateN.texture;
+  T.plate = paintAlbedo(lp, { base: '#74849a', seed: 211, tints: ['rgba(20,36,64,0.16)', 'rgba(255,255,255,0.08)'], chip: '#c9d2dc', stain: 'rgba(60,70,90,0.3)', speck: 0.04, seam: 'rgba(20,30,50,0.6)' });
+  T.plateOrm = paintORM(lp, { seed: 212, rough: 0.36, metal: 0.30, chipRough: 0.35, chipMetal: 0.9 });
+  T.plateD = paintAlbedo(lp, { base: '#1d2533', seed: 221, tints: ['rgba(0,0,0,0.2)', 'rgba(100,140,200,0.06)'], chip: '#7a828e', speck: 0.05, seam: 'rgba(0,0,0,0.7)' });
+  T.plateDOrm = paintORM(lp, { seed: 222, rough: 0.5, metal: 0.3 });
+  pbr('plate', { map: T.plate, normalMap: T.plateNormal, normalScale: ns(0.8), roughnessMap: T.plateOrm, metalnessMap: T.plateOrm, roughness: 1, metalness: 1, envMapIntensity: 1.25 }, 3.4);
+  pbr('plateDark', { map: T.plateD, normalMap: T.plateNormal, normalScale: ns(0.8), roughnessMap: T.plateDOrm, metalnessMap: T.plateDOrm, roughness: 1, metalness: 1, envMapIntensity: 1.2 }, 3.4);
+
+  // --- BFG: army-green armour + black-green chassis, chunky rivets and welds
+  const lb = makeLayout(301, { cols: 2, rows: 2, weld: 0.5, rivetGap: 22, rivetOff: 9, chips: 100, scratches: 40, dents: 9 });
+  T.bfgN = plateNormal(lb, { seed: 301, strength: 3.0 }); T.bfgNormal = T.bfgN.texture;
+  T.bfgG = paintAlbedo(lb, { base: '#42583a', seed: 311, tints: ['rgba(8,20,6,0.2)', 'rgba(150,190,120,0.07)'], chip: '#8d959a', stain: 'rgba(30,50,20,0.4)', speck: 0.06 });
+  T.bfgGOrm = paintORM(lb, { seed: 312, rough: 0.6, metal: 0.08 });
+  T.bfgK = paintAlbedo(lb, { base: '#161c18', seed: 321, tints: ['rgba(0,0,0,0.22)', 'rgba(90,130,90,0.06)'], chip: '#8a9288', speck: 0.05, seam: 'rgba(0,0,0,0.8)' });
+  T.bfgKOrm = paintORM(lb, { seed: 322, rough: 0.5, metal: 0.35 });
+  pbr('bfgGreen', { map: T.bfgG, normalMap: T.bfgNormal, normalScale: ns(0.95), roughnessMap: T.bfgGOrm, metalnessMap: T.bfgGOrm, roughness: 1, metalness: 1, envMapIntensity: 1.0 }, 3.4);
+  pbr('bfgBlack', { map: T.bfgK, normalMap: T.bfgNormal, normalScale: ns(0.95), roughnessMap: T.bfgKOrm, metalnessMap: T.bfgKOrm, roughness: 1, metalness: 1, envMapIntensity: 1.2 }, 3.4);
+
+  // --- rocket round: cream body + red warhead, painted, sharing the plating normal
+  const lr = makeLayout(401, { cols: 1, rows: 3, weld: 0.6, rivetGap: 30, chips: 60, scratches: 40, dents: 5 });
+  T.rocketN = plateNormal(lr, { seed: 401, strength: 2.2 }); T.rocketNormal = T.rocketN.texture;
+  T.rocketBody = paintAlbedo(lr, { base: '#d8d2bb', seed: 411, tints: ['rgba(60,50,20,0.16)', 'rgba(255,255,240,0.10)'], chip: '#7b7f86', stain: 'rgba(80,60,30,0.35)', speck: 0.05, seam: 'rgba(50,40,20,0.55)' });
+  T.rocketHead = paintAlbedo(lr, { base: '#b42a1c', seed: 421, tints: ['rgba(40,0,0,0.2)', 'rgba(255,120,90,0.08)'], chip: '#8b7f78', stain: 'rgba(50,10,6,0.4)', speck: 0.05, seam: 'rgba(40,0,0,0.55)' });
+  T.rocketOrm = paintORM(lr, { seed: 412, rough: 0.5, metal: 0.12, chipRough: 0.4, chipMetal: 0.8 });
+  pbr('rocketBody', { map: T.rocketBody, normalMap: T.rocketNormal, normalScale: ns(0.8), roughnessMap: T.rocketOrm, metalnessMap: T.rocketOrm, roughness: 1, metalness: 1, envMapIntensity: 0.9 }, 3.4);
+  pbr('rocketHead', { map: T.rocketHead, normalMap: T.rocketNormal, normalScale: ns(0.8), roughnessMap: T.rocketOrm, metalnessMap: T.rocketOrm, roughness: 1, metalness: 1, envMapIntensity: 1.0 }, 3.4);
+
+  // --- hazard band (box-projected for flat parts, native-UV variant for bands around cylinders) + translucent glass
+  T.hazard = hazardStripes();
+  pbr('hazard', { map: T.hazard, roughness: 0.6, metalness: 0.3, envMapIntensity: 0.5 }, 9);
+  T.hazardN = T.hazard.clone(); T.hazardN.repeat.set(10, 1); T.hazardN.needsUpdate = true;
+  pbr('hazardN', { map: T.hazardN, roughness: 0.6, metalness: 0.3, envMapIntensity: 0.5 }, 1); H.hazardN.userData.native = true;
+  pbr('glass', { color: 0x9fd8c8, roughness: 0.08, metalness: 0.0, transparent: true, opacity: 0.2, depthWrite: false, envMapIntensity: 0.8 }, 8);
+  H.glass.side = THREE.FrontSide;
+  // colour tokens for the shared vertex-colour materials (Parts merges them into one mesh)
+  const tk = (name, hex, target) => { H[name] = { isVC: true, name, color: new THREE.Color(hex), target, userData: { uv: 8 } }; };
+  tk('copper', 0xb8683a, M.vcMetal); tk('brassBright', 0xd8a84a, M.vcMetal); tk('steelVC', 0x9aa2ac, M.vcMetal); tk('redVC', 0xa01c14, M.vcDull); tk('orangeVC', 0xe8680e, M.vcDull); tk('yellowVC', 0xd8b020, M.vcDull);
+  tk('cyanVC', 0x30a0c8, M.vcDull); tk('greenVC', 0x2a7a30, M.vcDull); tk('darkVC', 0x101215, M.vcDull); tk('lightVC', 0xc8ccd0, M.vcDull);
+  return (game.__hero = { kit, M, env, T, H, mats: H });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Extended parts builder
+// ---------------------------------------------------------------------------------------------------------------------------------
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
-const _Y = new THREE.Vector3(0, 1, 0), _c = new THREE.Vector3();
-const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+function boxUV(geo, scale) {
+  const p = geo.attributes.position, n = geo.attributes.normal;
+  let uv = geo.attributes.uv; if (!uv) { uv = new THREE.BufferAttribute(new Float32Array(p.count * 2), 2); geo.setAttribute('uv', uv); }
+  for (let i = 0; i < p.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    let u, v;
+    if (ax >= ay && ax >= az) { u = p.getZ(i); v = p.getY(i); } else if (ay >= az) { u = p.getZ(i); v = p.getX(i); } else { u = p.getX(i); v = p.getY(i); }
+    uv.setXY(i, u * scale, v * scale);
+  }
+  uv.needsUpdate = true;
+}
+export class HParts extends Parts {
+  // same as Parts.addMatrix, but a material with userData.native keeps the geometry's own UVs (cylinders: u around, v along)
+  addMatrix(geo, mat, m4) {
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    let key = mat;
+    if (mat.isVC) { key = mat.target; const n = g.attributes.position.count, c = new Float32Array(n * 3); for (let i = 0; i < n; i++) { c[i * 3] = mat.color.r; c[i * 3 + 1] = mat.color.g; c[i * 3 + 2] = mat.color.b; } g.setAttribute('color', new THREE.BufferAttribute(c, 3)); }
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'color') g.deleteAttribute(k);
+    g.applyMatrix4(m4);
+    if (m4.determinant() < 0) for (const k of ['position', 'normal', 'uv']) { const at = g.attributes[k], n = at.itemSize, arr = at.array; for (let i = 0; i < at.count; i += 3) for (let c = 0; c < n; c++) { const a = (i + 1) * n + c, b = (i + 2) * n + c, t = arr[a]; arr[a] = arr[b]; arr[b] = t; } }
+    if (!key.userData.native) boxUV(g, key.userData.uv || 8);
+    let a = this.by.get(key); if (!a) this.by.set(key, a = []); a.push(g); return this;
+  }
+  // rounded boxes are triangle-hungry (seg 2 = 300 tris): skip the bevel on tiny parts and use 1 segment (108 tris) on small/medium ones
+  box(mat, size, p, r, rad = 0, seg) {
+    const m = Math.min(size[0], size[1], size[2]);
+    if (rad > 0 && m < 0.008) rad = 0;
+    return super.box(mat, size, p, r, rad, seg ?? (m < 0.026 ? 1 : 2));
+  }
+  torus(mat, R, tube, p, r, seg = 20, s) { return super.torus(mat, R, tube, p, r, R < 0.03 ? Math.min(seg, 16) : seg, s); }
+  // lathe with crisp (hard) edges: pts = [[radius, forwardDist, smooth?], ...]; every point is doubled unless its third element is truthy
+  lathe2(mat, pts, p, r, seg = 24) {
+    const out = [];
+    pts.forEach((q, i) => { out.push([q[0], q[1]]); if (!q[2] && i > 0 && i < pts.length - 1) out.push([q[0], q[1]]); });
+    return this.lathe(mat, out, p, r, seg);
+  }
+  // n small cylinders along Z arranged on a circle (bolt circle) around (cx, cy)
+  boltCircle(mat, cx, cy, z, R, n, rad, len = 0.004, a0 = 0, seg = 8) {
+    for (let i = 0; i < n; i++) { const a = a0 + (i / n) * Math.PI * 2; this.cyl(mat, rad, rad, len, 'z', [cx + Math.cos(a) * R, cy + Math.sin(a) * R, z], null, seg); }
+    return this;
+  }
+  // a row of n copies of a box along a direction
+  row(mat, size, start, step, n, r, rad = 0) { for (let i = 0; i < n; i++) this.box(mat, size, [start[0] + step[0] * i, start[1] + step[1] * i, start[2] + step[2] * i], r, rad); return this; }
+  // Phillips-style screw head (disc + dark slot) on a surface; axis 'x' | 'y' | 'z'
+  screw(mat, slotMat, rad, p, axis = 'x', h = 0.0022) {
+    this.cyl(mat, rad, rad, h, axis, p, null, 10);
+    const q = [p[0], p[1], p[2]], off = h * 0.5 + 0.0002; if (axis === 'x') q[0] += Math.sign(p[0] || 1) * off; else if (axis === 'y') q[1] += off; else q[2] += Math.sign(p[2] || 1) * off;
+    const sz = axis === 'x' ? [0.0004, rad * 1.5, 0.0006] : axis === 'y' ? [rad * 1.5, 0.0004, 0.0006] : [rad * 1.5, 0.0006, 0.0004];
+    this.box(slotMat, sz, q, null, 0); return this;
+  }
+}
 
-// ---------------------------------------------------------------------------------------------------------------
-// Geometry builder: accumulate primitives, then merge per material into one mesh each (few draw calls, lots of detail)
-// ---------------------------------------------------------------------------------------------------------------
-export class Builder {
-  constructor() { this.lists = new Map(); }
-  put(mat, geo, x, y, z, q, sx = 1, sy = 1, sz = 1) {
-    geo.applyMatrix4(_m4.compose(_p.set(x, y, z), q, _s.set(sx, sy, sz)));
-    let l = this.lists.get(mat); if (!l) this.lists.set(mat, l = []);
-    l.push(geo); return this;
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Decal atlas: every stencil / label of a weapon is drawn into ONE canvas and merged into ONE transparent mesh (planes + curved patches)
+// ---------------------------------------------------------------------------------------------------------------------------------
+export class DecalSheet {
+  constructor(game, w = 1024, h = 512) {
+    this.game = game; this.w = w; this.h = h; [this.canvas, this.g] = mk(w, h); this.g.clearRect(0, 0, w, h);
+    this.x = 2; this.y = 2; this.rowH = 0; this.geos = [];
   }
-  _eu(rx, ry, rz) { return _q.setFromEuler(_e.set(rx, ry, rz)); }
-  box(mat, w, h, d, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) { return this.put(mat, new THREE.BoxGeometry(w, h, d), x, y, z, this._eu(rx, ry, rz)); }
-  cyl(mat, rTop, rBot, h, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, seg = 14, open = false) { return this.put(mat, new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open), x, y, z, this._eu(rx, ry, rz)); }
-  // cylinder/cone along Z, rFront is the radius at the -Z (muzzle) end
-  cylZ(mat, rFront, rBack, len, x = 0, y = 0, z = 0, seg = 14, open = false) { return this.cyl(mat, rFront, rBack, len, x, y, z, -Math.PI / 2, 0, 0, seg, open); }
-  cylX(mat, r, len, x = 0, y = 0, z = 0, seg = 12) { return this.cyl(mat, r, r, len, x, y, z, 0, 0, Math.PI / 2, seg); }
-  sph(mat, r, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ws = 12, hs = 8) { return this.put(mat, new THREE.SphereGeometry(r, ws, hs), x, y, z, _q.identity(), sx, sy, sz); }
-  tor(mat, R, r, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, seg = 20, tube = 6) { return this.put(mat, new THREE.TorusGeometry(R, r, tube, seg), x, y, z, this._eu(rx, ry, rz)); }
-  limb(mat, r, a, b, seg = 8) {
-    _c.subVectors(b, a); const total = _c.length(), len = Math.max(1e-4, total - 2 * r);
-    _q.setFromUnitVectors(_Y, _c.multiplyScalar(1 / total));
-    return this.put(mat, new THREE.CapsuleGeometry(r, len, 3, seg), (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, _q);
+  // reserve a pw x ph pixel rect and let draw(g, x, y, pw, ph) paint it; returns the uv rect
+  label(pw, ph, draw) {
+    if (this.x + pw + 2 > this.w) { this.x = 2; this.y += this.rowH + 2; this.rowH = 0; }
+    const x = this.x, y = this.y; this.x += pw + 2; this.rowH = Math.max(this.rowH, ph);
+    if (y + ph > this.h) console.warn('[hero] decal atlas overflow');
+    this.g.save(); this.g.beginPath(); this.g.rect(x, y, pw, ph); this.g.clip(); draw(this.g, x, y, pw, ph); this.g.restore();
+    return { u0: x / this.w, u1: (x + pw) / this.w, v0: 1 - (y + ph) / this.h, v1: 1 - y / this.h };
   }
-  build(parent = new THREE.Group()) {
-    for (const [mat, list] of this.lists) {
-      const g = mergeGeometries(list, false);
-      for (const l of list) l.dispose();
-      const m = new THREE.Mesh(g, mat); m.frustumCulled = false; parent.add(m);
+  // convenience: text label, fitted to the rect. o: {color, bg, font, weight, align, border, lines}
+  text(pw, ph, lines, o = {}) {
+    return this.label(pw, ph, (g, x, y, w, h) => {
+      if (o.bg) { g.fillStyle = o.bg; g.fillRect(x, y, w, h); }
+      const L = Array.isArray(lines) ? lines : [lines], lh = h / L.length;
+      g.fillStyle = o.color || 'rgba(232,228,206,0.92)'; g.textBaseline = 'middle'; g.textAlign = o.align || 'center';
+      L.forEach((t, i) => {
+        let fs = Math.round(lh * (o.size ?? 0.78)); g.font = `${o.weight || 'bold'} ${fs}px ${o.font || 'Arial Narrow, Arial, sans-serif'}`;
+        if (o.spacing && 'letterSpacing' in g) g.letterSpacing = o.spacing;
+        const tw = g.measureText(t).width, maxW = w * 0.94; if (tw > maxW) { fs = Math.floor(fs * maxW / tw); g.font = `${o.weight || 'bold'} ${fs}px ${o.font || 'Arial Narrow, Arial, sans-serif'}`; }
+        g.fillText(t, o.align === 'left' ? x + 6 : o.align === 'right' ? x + w - 6 : x + w / 2, y + lh * (i + 0.5) + fs * 0.04);
+      });
+      if (o.border) { g.strokeStyle = o.border; g.lineWidth = o.bw || 3; g.strokeRect(x + 2, y + 2, w - 4, h - 4); }
+      if (o.wear !== false) { const r = mulberry32(x * 7 + y * 13 + 5); g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < w * h / 380; i++) { g.fillStyle = `rgba(0,0,0,${0.15 + r() * 0.55})`; g.fillRect(x + r() * w, y + r() * h, 1 + r() * 2.2, 1 + r() * 1.6); } g.globalCompositeOperation = 'source-over'; }
+    });
+  }
+  _push(g) { this.geos.push(g); return this; }
+  // flat quad. axis: 'x-' faces -X (left flank; text reads front->rear), 'x+' faces +X, 'y+' faces up (text reads left->right), 'z+' faces the player
+  plane(rect, wM, hM, pos, face = 'x-') {
+    const g = new THREE.PlaneGeometry(wM, hM), uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, rect.u0 + uv.getX(i) * (rect.u1 - rect.u0), rect.v0 + uv.getY(i) * (rect.v1 - rect.v0));
+    if (face === 'x-') g.rotateY(-Math.PI / 2); else if (face === 'x+') g.rotateY(Math.PI / 2); else if (face === 'y+') g.rotateX(-Math.PI / 2); else if (face === 'y-') g.rotateX(Math.PI / 2);
+    g.translate(pos[0], pos[1], pos[2]); return this._push(g);
+  }
+  // curved patch on a cylinder along Z (axis at (cx, cy)); centred at angle phi0 (0 = left flank (-X), +pi/2 = top), spanning arc radians and len metres around z0
+  wrap(rect, R, arc, len, z0, phi0 = 0, cx = 0, cy = 0, segs = 10) {
+    const pos = [], nor = [], uvs = [], idx = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs, phi = phi0 - arc / 2 + arc * t, c = Math.cos(phi), s = Math.sin(phi);
+      for (let j = 0; j <= 1; j++) { // j=0 front(-Z), j=1 rear(+Z): u (text direction) grows toward the rear on the left flank
+        pos.push(cx - R * c, cy + R * s, z0 + (j ? len / 2 : -len / 2)); nor.push(-c, s, 0);
+        uvs.push(rect.u0 + (rect.u1 - rect.u0) * j, rect.v0 + (rect.v1 - rect.v0) * t);
+      }
     }
-    this.lists.clear(); return parent;
+    for (let i = 0; i < segs; i++) { const a = i * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); g.setIndex(idx);
+    return this._push(g.toNonIndexed());
+  }
+  build(name = 'decals', o = {}) {
+    const H = getHero(this.game), t = mkTex(this.canvas, { srgb: true, repeat: false }); this.tex = t;
+    const g = mergeGeometries(this.geos.map((x) => { const y = x.index ? x.toNonIndexed() : x; for (const k of Object.keys(y.attributes)) if (!['position', 'normal', 'uv'].includes(k)) y.deleteAttribute(k); return y; }), false);
+    const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.62, metalness: 0.0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, envMap: H.env, envMapIntensity: 0.45, ...o });
+    const mesh = new THREE.Mesh(g, m); mesh.name = name; mesh.frustumCulled = false; mesh.renderOrder = 2; return mesh;
   }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Textures
-// ---------------------------------------------------------------------------------------------------------------
-const TEX = {};
-const once = (k, f) => TEX[k] || (TEX[k] = f());
-
-function grime(ctx, w, h, r, n, a = 0.1) {
-  for (let i = 0; i < n; i++) {
-    const x = r() * w, y = r() * h, rad = 10 + r() * 40;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, `rgba(0,0,0,${a * (0.4 + r())})`); g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-}
-function streaks(ctx, w, h, r, n, alpha) {
-  for (let i = 0; i < n; i++) {
-    const y = r() * h, x = r() * w, l = 20 + r() * 140, v = r() < 0.5 ? 255 : 0;
-    ctx.fillStyle = `rgba(${v},${v},${v},${alpha * (0.3 + r())})`; ctx.fillRect(x, y, l, 1);
-  }
-}
-
-export function metalTexture() {
-  return once('metal', () => canvasTexture(256, 256, (ctx, w, h) => {
-    const r = mulberry32(11);
-    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#a4a9b0'); g.addColorStop(0.5, '#8d939b'); g.addColorStop(1, '#7c828a');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    streaks(ctx, w, h, r, 1000, 0.09);
-    for (let i = 0; i < 220; i++) { ctx.fillStyle = `rgba(0,0,0,${0.06 + r() * 0.16})`; ctx.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 46; i++) {
-      const x = r() * w, y = r() * h, a = r() * Math.PI, l = 8 + r() * 40;
-      ctx.strokeStyle = `rgba(255,255,255,${0.08 + r() * 0.2})`; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke();
-    }
-    grime(ctx, w, h, r, 9, 0.12);
-  }));
-}
-
-// Painted metal with chips, grime and edge wear. base = css colour.
-export function paintTexture(base, seed = 5, chip = '#9aa0a6') {
-  return canvasTexture(256, 256, (ctx, w, h) => {
-    const r = mulberry32(seed);
-    ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
-    streaks(ctx, w, h, r, 700, 0.06);
-    for (let i = 0; i < 1800; i++) { const v = r() < 0.5 ? 0 : 255; ctx.fillStyle = `rgba(${v},${v},${v},${0.02 + r() * 0.05})`; ctx.fillRect(r() * w, r() * h, 1, 1); }
-    // chips, biased to the borders (edge wear)
-    for (let i = 0; i < 90; i++) {
-      let x = r() * w, y = r() * h;
-      if (r() < 0.6) { const s = Math.floor(r() * 4); if (s === 0) x = r() * 10; else if (s === 1) x = w - r() * 10; else if (s === 2) y = r() * 10; else y = h - r() * 10; }
-      ctx.fillStyle = chip; ctx.globalAlpha = 0.5 + r() * 0.5; ctx.beginPath();
-      const n = 4 + Math.floor(r() * 3), rad = 1 + r() * 3.5;
-      for (let k = 0; k < n; k++) { const a = k / n * 6.283, rr = rad * (0.5 + r()); ctx[k ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
-      ctx.closePath(); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    // dirt streaks + grime
-    for (let i = 0; i < 24; i++) { const x = r() * w, y = r() * h * 0.6, l = 20 + r() * 90; const gr = ctx.createLinearGradient(0, y, 0, y + l); gr.addColorStop(0, 'rgba(20,14,8,0.0)'); gr.addColorStop(0.3, `rgba(20,14,8,${0.08 + r() * 0.12})`); gr.addColorStop(1, 'rgba(20,14,8,0)'); ctx.fillStyle = gr; ctx.fillRect(x, y, 1 + r() * 2, l); }
-    grime(ctx, w, h, r, 10, 0.16);
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 3; ctx.strokeRect(1, 1, w - 2, h - 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.strokeRect(4, 4, w - 8, h - 8);
-  });
-}
-
-export function leatherTexture() {
-  return once('leather', () => canvasTexture(128, 128, (ctx, w, h) => {
-    const r = mulberry32(21);
-    ctx.fillStyle = '#7a6448'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 2600; i++) { const v = r() < 0.5 ? 0 : 255; ctx.fillStyle = `rgba(${v},${v},${v},${0.03 + r() * 0.06})`; ctx.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
-    ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1;
-    for (let i = 0; i < 30; i++) { const y = r() * h; ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(w * 0.3, y + (r() - 0.5) * 10, w * 0.6, y + (r() - 0.5) * 10, w, y + (r() - 0.5) * 8); ctx.stroke(); }
-    ctx.setLineDash([4, 3]); ctx.strokeStyle = 'rgba(210,190,150,0.5)'; ctx.strokeRect(6, 6, w - 12, h - 12); ctx.setLineDash([]);
-    grime(ctx, w, h, r, 5, 0.2);
-  }));
-}
-
-export function fabricTexture(base = '#4a5a3c') {
-  return canvasTexture(128, 128, (ctx, w, h) => {
-    const r = mulberry32(31);
-    ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 2) { ctx.fillStyle = `rgba(0,0,0,${0.08 + (y % 4) * 0.02})`; ctx.fillRect(0, y, w, 1); }
-    for (let x = 0; x < w; x += 2) { ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(x, 0, 1, h); }
-    for (let i = 0; i < 14; i++) { const x = r() * w; const gr = ctx.createLinearGradient(x, 0, x + 12, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, `rgba(0,0,0,${0.12 + r() * 0.18})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = gr; ctx.fillRect(x, 0, 12, h); }
-    grime(ctx, w, h, r, 6, 0.22);
-  });
-}
-
-export function hazardTexture() {
-  return once('hazard', () => canvasTexture(128, 32, (ctx, w, h) => {
-    const r = mulberry32(9);
-    ctx.fillStyle = '#d9a91c'; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#16171a';
-    for (let x = -h; x < w + h; x += 22) { ctx.beginPath(); ctx.moveTo(x, h); ctx.lineTo(x + 11, h); ctx.lineTo(x + 11 + h, 0); ctx.lineTo(x + h, 0); ctx.closePath(); ctx.fill(); }
-    for (let i = 0; i < 400; i++) { const v = r() < 0.5 ? 0 : 255; ctx.fillStyle = `rgba(${v},${v},${v},${0.05 + r() * 0.1})`; ctx.fillRect(r() * w, r() * h, 1 + r() * 2, 1); }
-    grime(ctx, w, h, r, 4, 0.25);
-  }));
-}
-
-export function rubberTexture() {
-  return once('rubber', () => canvasTexture(64, 64, (ctx, w, h) => {
-    ctx.fillStyle = '#26282a'; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    for (let y = 0; y < h; y += 4) for (let x = (y / 4) % 2 ? 0 : 2; x < w; x += 4) ctx.fillRect(x, y, 2, 2);
-  }));
-}
-
-// Text stencil decal (transparent background)
-export function stencilTexture(lines, { w = 256, h = 128, color = '#e6e0c8', size = 30, weight = 'bold', font = 'Arial, sans-serif', align = 'left' } = {}) {
-  return canvasTexture(w, h, (ctx) => {
-    ctx.clearRect(0, 0, w, h); ctx.fillStyle = color; ctx.font = `${weight} ${size}px ${font}`; ctx.textBaseline = 'top'; ctx.textAlign = align;
-    const lh = size * 1.1;
-    lines.forEach((t, i) => ctx.fillText(t, align === 'left' ? 6 : align === 'center' ? w / 2 : w - 6, 4 + i * lh));
-  }, { wrap: false });
-}
-
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Small texture helpers (glow / spark / smoke / streak / beam), cached
+// ---------------------------------------------------------------------------------------------------------------------------------
+const TEX = {}; const once = (k, f) => TEX[k] || (TEX[k] = f());
 export function glowTexture() {
-  return once('glow', () => canvasTexture(128, 128, (ctx, w, h) => {
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.18, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(255,255,255,0.2)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  }, { wrap: false }));
+  return once('glow', () => { const [c, g] = mk(128, 128); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.18, 'rgba(255,255,255,0.75)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.2)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return mkTex(c, { repeat: false }); });
 }
 export function sparkTexture() {
-  return once('spark', () => canvasTexture(64, 64, (ctx, w, h) => {
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(31, 4, 2, 56); ctx.fillRect(4, 31, 56, 2);
-  }, { wrap: false }));
+  return once('spark', () => { const [c, g] = mk(64, 64); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(31, 4, 2, 56); g.fillRect(4, 31, 56, 2); return mkTex(c, { repeat: false }); });
 }
 export function smokeTexture() {
-  return once('smoke', () => canvasTexture(128, 128, (ctx, w, h) => {
-    const r = mulberry32(77);
-    for (let i = 0; i < 34; i++) {
-      const a = r() * 6.283, d = r() * 34, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = 12 + r() * 26;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, 'rgba(255,255,255,0.22)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  return once('smoke', () => {
+    const [c, g] = mk(128, 128), r = mulberry32(77);
+    for (let i = 0; i < 34; i++) { const a = r() * 6.283, d = r() * 34, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = 12 + r() * 26; const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
+    const m = g.createRadialGradient(64, 64, 30, 64, 64, 64); m.addColorStop(0, 'rgba(0,0,0,0)'); m.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = m; g.fillRect(0, 0, 128, 128); g.globalCompositeOperation = 'source-over';
+    return mkTex(c, { repeat: false });
+  });
+}
+export function streakTexture() { // bright at v=0 (head) fading to v=1 (tail), soft across
+  return once('streak', () => { const [c, g] = mk(32, 128); const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.15, 'rgba(255,255,255,0.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 128); const gx = g.createLinearGradient(0, 0, 32, 0); gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(0.5, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = gx; g.fillRect(0, 0, 32, 128); g.globalCompositeOperation = 'source-over'; return mkTex(c, { repeat: false }); });
+}
+export function beamTexture() { // gaussian across u, constant along v (lightning ribbons)
+  return once('beam', () => { const [c, g] = mk(32, 8); const gx = g.createLinearGradient(0, 0, 32, 0); gx.addColorStop(0, 'rgba(255,255,255,0)'); gx.addColorStop(0.35, 'rgba(255,255,255,0.55)'); gx.addColorStop(0.5, 'rgba(255,255,255,1)'); gx.addColorStop(0.65, 'rgba(255,255,255,0.55)'); gx.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gx; g.fillRect(0, 0, 32, 8); return mkTex(c, { repeat: false }); });
+}
+export function vignetteTexture() { // transparent centre, soft glow toward the screen edges/corners (superellipse falloff)
+  return once('vignette', () => {
+    const N = 128, [c, g] = mk(N, N), img = g.createImageData(N, N), d = img.data, r = mulberry32(31);
+    const ph = [r() * 6.28, r() * 6.28, r() * 6.28];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const nx = (x + 0.5) / (N / 2) - 1, ny = (y + 0.5) / (N / 2) - 1, ang = Math.atan2(ny, nx);
+      const n = Math.pow(Math.pow(Math.abs(nx), 3.0) + Math.pow(Math.abs(ny), 3.0), 1 / 3.0) + 0.02 * Math.sin(ang * 5 + ph[0]) + 0.012 * Math.sin(ang * 9 + ph[1]) + 0.008 * Math.sin(ang * 17 + ph[2]);
+      let a = Math.min(1, Math.max(0, (n - 0.50) / 0.66)); a = a * a * (3 - 2 * a); a = Math.pow(a, 1.6);
+      const i = (y * N + x) * 4; d[i] = d[i + 1] = d[i + 2] = 255; d[i + 3] = Math.round(a * 255);
     }
-    // fade the outer rim to zero
-    const m = ctx.createRadialGradient(64, 64, 30, 64, 64, 64); m.addColorStop(0, 'rgba(0,0,0,0)'); m.addColorStop(1, 'rgba(0,0,0,1)');
-    ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = m; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
-  }, { wrap: false }));
+    g.putImageData(img, 0, 0); return mkTex(c, { repeat: false });
+  });
 }
-// gradient streak: bright at v=0 (head) fading to v=1 (tail); used by bolts.
-export function streakTexture() {
-  return once('streak', () => canvasTexture(32, 128, (ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.15, 'rgba(255,255,255,0.7)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    const gx = ctx.createLinearGradient(0, 0, w, 0); gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(0.5, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)');
-    ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = gx; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
-  }, { wrap: false }));
-}
+export const glowBasic = (r, g, b, extra = {}) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b), toneMapped: false, ...extra });
+export const additiveMat = (map, r, g, b, extra = {}) => new THREE.MeshBasicMaterial({ map, color: new THREE.Color(r, g, b), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, ...extra });
 
-// ---------------------------------------------------------------------------------------------------------------
-// Environment map (tiny PMREM of a bright "station" room) so metals have something to reflect
-// ---------------------------------------------------------------------------------------------------------------
-let ENV = null;
-export function getEnv(game) {
-  if (ENV) return ENV;
-  const sc = new THREE.Scene();
-  const dome = new THREE.SphereGeometry(20, 24, 14), pos = dome.attributes.position, col = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) {
-    const t = pos.getY(i) / 20; // -1 .. 1
-    const c = t > 0 ? [0.20 + 0.45 * t, 0.24 + 0.5 * t, 0.30 + 0.6 * t] : [0.20 + 0.15 * t, 0.19 + 0.15 * t, 0.2 + 0.16 * t];
-    col[i * 3] = Math.max(0.02, c[0]); col[i * 3 + 1] = Math.max(0.02, c[1]); col[i * 3 + 2] = Math.max(0.02, c[2]);
-  }
-  dome.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  sc.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const panel = (w, h, x, y, z, c) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(c[0], c[1], c[2]), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 0, 0); sc.add(m); };
-  panel(9, 0.9, 0, 9, -3, [7, 7.2, 7.6]); panel(9, 0.9, 0, 9, 4, [6, 6.2, 6.6]);
-  panel(4, 3, -12, 3, -3, [2.6, 1.5, 0.7]); panel(4, 3, 12, 2, 6, [0.8, 1.4, 2.6]);
-  panel(6, 2, 0, -1, -14, [1.4, 1.5, 1.7]);
-  const pm = new THREE.PMREMGenerator(game.renderer);
-  ENV = pm.fromScene(sc, 0.03).texture; pm.dispose();
-  return ENV;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Shared materials
-// ---------------------------------------------------------------------------------------------------------------
-let MATS = null;
-export function getMats(game) {
-  if (MATS) return MATS;
-  const env = getEnv(game), mt = metalTexture();
-  const mk = (o) => new THREE.MeshStandardMaterial({ envMap: env, envMapIntensity: 1.5, ...o });
-  const leather = leatherTexture();
-  MATS = {
-    env,
-    steel: mk({ color: 0xc8cdd4, map: mt, bumpMap: mt, bumpScale: 0.7, metalness: 0.85, roughness: 0.34 }),
-    darkSteel: mk({ color: 0x565c66, map: mt, bumpMap: mt, bumpScale: 0.7, metalness: 0.85, roughness: 0.42 }),
-    blued: mk({ color: 0x2c3138, map: mt, bumpMap: mt, bumpScale: 0.5, metalness: 0.92, roughness: 0.28 }),
-    brass: mk({ color: 0xd2a04a, metalness: 0.95, roughness: 0.28 }),
-    copper: mk({ color: 0xb8683a, metalness: 0.9, roughness: 0.32 }),
-    rubber: mk({ color: 0x9a9c9e, map: rubberTexture(), metalness: 0.0, roughness: 0.92 }),
-    black: mk({ color: 0x0a0b0c, metalness: 0.3, roughness: 0.6 }),
-    hazard: mk({ color: 0xffffff, map: hazardTexture(), metalness: 0.3, roughness: 0.6 }),
-    glove: mk({ color: 0xc8bba4, map: leather, metalness: 0.0, roughness: 0.82 }),
-    gloveDark: mk({ color: 0x2b2c2f, map: rubberTexture(), metalness: 0.15, roughness: 0.55 }),
-    sleeve: mk({ color: 0xffffff, map: fabricTexture('#4a5b3d'), metalness: 0.0, roughness: 0.95 }),
-    cuff: mk({ color: 0x33363a, metalness: 0.1, roughness: 0.75 }),
-    strap: mk({ color: 0x7a7f52, metalness: 0.0, roughness: 0.9 }),
-  };
-  return MATS;
-}
-
-// Painted metal material with its own colour (chips reveal steel).
-export function paintMat(game, base, seed, o = {}) {
-  return new THREE.MeshStandardMaterial({ envMap: getEnv(game), envMapIntensity: o.env ?? 0.8, map: paintTexture(base, seed, o.chip), bumpMap: metalTexture(), bumpScale: 0.6, color: o.tint ?? 0xffffff, metalness: o.metalness ?? 0.45, roughness: o.roughness ?? 0.55 });
-}
-export function glassMat(game, color, opacity = 0.35) {
-  return new THREE.MeshStandardMaterial({ envMap: getEnv(game), envMapIntensity: 1.3, color, metalness: 0.1, roughness: 0.08, transparent: true, opacity, depthWrite: false });
-}
-export function glowBasic(r, g, b, extra = {}) { return new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b), toneMapped: false, ...extra }); }
-export function additive(map, r, g, b, extra = {}) {
-  return new THREE.MeshBasicMaterial({ map, color: new THREE.Color(r, g, b), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, ...extra });
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Hands. Local frame: forearm extends toward +Z, back of hand is +Y, fingers wrap around a rod along local X that sits
-// under the palm (rod radius R at the origin). Index/thumb on the -X side (mirror with scale.x=-1 for a left hand).
-// ---------------------------------------------------------------------------------------------------------------
-export function buildHand(M, o = {}) {
-  const R = o.R ?? 0.02, W = o.W ?? 0.076, curl = o.curl ?? 1, sleeveLen = o.sleeveLen ?? 0.6;
-  const b = new Builder(), G = M.glove, K = M.gloveDark;
-  const rfs = [0.0104, 0.0112, 0.0106, 0.0094], lens = [1, 1.06, 1.0, 0.86];
-  const py = R + 0.0135 + 0.006;
-  // back of hand + palm block
-  b.box(G, W, 0.019, 0.07, 0, py, 0.03);
-  b.sph(G, 1, 0, py + 0.002, 0.03, W * 0.54, 0.0125, 0.042);
-  b.box(K, W * 0.86, 0.0055, 0.048, 0, py + 0.0125, 0.024, -0.1, 0, 0);            // knuckle/back plate
-  b.box(K, W * 0.5, 0.004, 0.02, 0, py + 0.0135, 0.058, -0.05, 0, 0);
-  const A = new THREE.Vector3(), B = new THREE.Vector3();
-  for (let i = 0; i < 4; i++) {
-    const x = -W / 2 + W * (i + 0.5) / 4, rf = rfs[i], Rf = R + rf * 0.92, L = lens[i];
-    const straight = o.trigger && i === 0;
-    const pts = [];
-    if (straight) { pts.push([x, py + 0.003, -0.012], [x, py - 0.004, -0.040], [x, py - 0.012, -0.064], [x, py - 0.02, -0.082]); }
-    else for (const ang of [12, 58, 104, 148]) { const a = ang * curl * DEG; pts.push([x, Rf * Math.cos(a), -Rf * Math.sin(a)]); }
-    // lift the first (knuckle) point to match the palm height
-    if (!straight) pts[0][1] = py + 0.002;
-    for (let j = 0; j < 3; j++) {
-      A.set(...pts[j]); B.set(...pts[j + 1]);
-      if (j === 2) B.lerp(A, 1 - L * 0.98 + 0.0);
-      b.limb(G, rf * (j === 2 ? 0.94 : 1), A, B, 7);
-      b.sph(G, rf * 1.04, B.x, B.y, B.z, 1, 1, 1, 8, 6);
-    }
-    b.sph(K, rf * 1.12, pts[0][0], pts[0][1] + 0.003, pts[0][2], 1, 0.8, 1, 8, 6); // knuckle pad
-  }
-  // thumb wraps alongside the index finger
-  const th = [[-W / 2 + 0.003, py - 0.003, 0.05], [-W / 2 - 0.012, py - 0.008, 0.02], [-W / 2 - 0.013, py - 0.012, -0.012], [-W / 2 - 0.004, py - 0.014, -0.038]];
-  for (let j = 0; j < 3; j++) { A.set(...th[j]); B.set(...th[j + 1]); b.limb(G, 0.0118 - j * 0.0008, A, B, 7); b.sph(G, 0.0122 - j * 0.0008, B.x, B.y, B.z, 1, 1, 1, 8, 6); }
-  // wrist: cuff, strap, sleeve
-  const wy = py - 0.004;
-  b.cylZ(M.cuff, 0.038, 0.042, 0.04, 0, wy, 0.106, 16);
-  b.box(M.strap, 0.05, 0.007, 0.032, 0, wy + 0.04, 0.086);
-  b.box(K, 0.02, 0.004, 0.02, 0, wy + 0.0445, 0.086);
-  b.cylZ(M.sleeve, 0.046, 0.066, sleeveLen, 0, wy, 0.125 + sleeveLen / 2, 16);
-  b.tor(M.cuff, 0.047, 0.006, 0, wy, 0.128, 0, 0, 0, 16, 5);
-  const g = new THREE.Group(); b.build(g); return g;
-}
-
-// Orient a hand: zDir = forearm direction (toward the elbow, out of the gun), xDir = rod axis. Y (back of hand) = Z x X.
-export function poseHand(hand, pos, zDir, xDir, mirror = false) {
-  const z = _v1.copy(zDir).normalize(), x = _v2.copy(xDir);
-  x.addScaledVector(z, -x.dot(z)).normalize();
-  const y = _v3.crossVectors(z, x);
-  _m4.makeBasis(x, y, z); hand.quaternion.setFromRotationMatrix(_m4);
-  hand.position.copy(pos); hand.scale.set(mirror ? -1 : 1, 1, 1);
-  return hand;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Smoke / steam / glow puffs living in the weapon's local space
-// ---------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Pooled smoke / steam / glow puffs living in the weapon's local space. ONE instanced draw call per batch (camera-facing quads expanded in view space by a
+// tiny shader; per-instance offset / size / opacity / spin), so a busy volley of smoke + sparks costs 2 draw calls instead of ~24 sprites.
+// ---------------------------------------------------------------------------------------------------------------------------------
+const PUFF_VS = `attribute vec3 aOff; attribute vec3 aPar; varying vec2 vUv; varying float vOp;
+void main() { vUv = uv; vOp = aPar.y; float c = cos(aPar.z), s = sin(aPar.z);
+  vec2 p = vec2(position.x * c - position.y * s, position.x * s + position.y * c) * aPar.x;
+  vec4 mv = modelViewMatrix * vec4(aOff, 1.0); mv.xy += p; gl_Position = projectionMatrix * mv; }`;
+const PUFF_FS = `uniform sampler2D map; uniform vec3 color; varying vec2 vUv; varying float vOp;
+void main() { vec4 t = texture2D(map, vUv); gl_FragColor = vec4(color * t.rgb, t.a * vOp); }`;
 export class Puffs {
   constructor(parent, n, map, { additive: add = false, color = 0xffffff, drag = 1.5 } = {}) {
-    this.list = []; this.next = 0; this.drag = drag;
-    for (let i = 0; i < n; i++) {
-      const m = new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, opacity: 0, color, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, fog: false, toneMapped: !add });
-      const s = new THREE.Sprite(m); s.visible = false; s.renderOrder = 6; s.frustumCulled = false; parent.add(s);
-      this.list.push({ s, m, on: false, age: 0, life: 1, vx: 0, vy: 0, vz: 0, s0: 0.1, s1: 0.3, op: 0.5, vr: 0 });
-    }
+    this.n = n; this.drag = drag; this.next = 0; this.active = 0;
+    const quad = new THREE.PlaneGeometry(1, 1), g = new THREE.InstancedBufferGeometry();
+    g.index = quad.index; g.setAttribute('position', quad.attributes.position); g.setAttribute('uv', quad.attributes.uv);
+    this.off = new Float32Array(n * 3); this.par = new Float32Array(n * 3);
+    this.aOff = new THREE.InstancedBufferAttribute(this.off, 3).setUsage(THREE.DynamicDrawUsage); this.aPar = new THREE.InstancedBufferAttribute(this.par, 3).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('aOff', this.aOff); g.setAttribute('aPar', this.aPar); g.instanceCount = n;
+    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: map }, color: { value: new THREE.Color(color) } }, vertexShader: PUFF_VS, fragmentShader: PUFF_FS, transparent: true, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, fog: false });
+    this.mesh = new THREE.Mesh(g, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 6; this.mesh.visible = false; parent.add(this.mesh);
+    this.list = []; for (let i = 0; i < n; i++) this.list.push({ on: false, age: 0, life: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s0: 0.1, s1: 0.3, op: 0.5, vr: 0, rot: 0 });
   }
   emit(x, y, z, vx, vy, vz, life, s0, s1, op, vr = 0) {
-    const p = this.list[this.next]; this.next = (this.next + 1) % this.list.length;
-    p.on = true; p.age = 0; p.life = life; p.vx = vx; p.vy = vy; p.vz = vz; p.s0 = s0; p.s1 = s1; p.op = op; p.vr = vr;
-    p.s.position.set(x, y, z); p.s.visible = true; p.m.rotation = Math.random() * 6.28; p.m.opacity = 0; p.s.scale.set(s0, s0, 1);
+    const p = this.list[this.next]; this.next = (this.next + 1) % this.n;
+    if (!p.on) this.active++;
+    p.on = true; p.age = 0; p.life = life; p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz; p.s0 = s0; p.s1 = s1; p.op = op; p.vr = vr; p.rot = Math.random() * 6.28;
+    this.mesh.visible = true;
   }
   update(dt) {
-    const k = Math.exp(-this.drag * dt);
-    for (const p of this.list) {
-      if (!p.on) continue;
+    if (this.active <= 0) return;
+    const k = Math.exp(-this.drag * dt), O = this.off, P = this.par; let act = 0;
+    for (let i = 0; i < this.n; i++) {
+      const p = this.list[i]; if (!p.on) continue;
       p.age += dt; const t = p.age / p.life;
-      if (t >= 1) { p.on = false; p.s.visible = false; continue; }
-      p.vx *= k; p.vy *= k; p.vz *= k;
-      p.s.position.x += p.vx * dt; p.s.position.y += p.vy * dt; p.s.position.z += p.vz * dt;
+      if (t >= 1) { p.on = false; P[i * 3 + 1] = 0; P[i * 3] = 0; continue; }
+      act++;
+      p.vx *= k; p.vy *= k; p.vz *= k; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.rot += p.vr * dt;
       const sz = p.s0 + (p.s1 - p.s0) * (1 - (1 - t) * (1 - t));
-      p.s.scale.set(sz, sz, 1); p.m.rotation += p.vr * dt;
-      p.m.opacity = p.op * Math.min(1, p.age / 0.04) * (1 - t) * (1 - t);
+      O[i * 3] = p.x; O[i * 3 + 1] = p.y; O[i * 3 + 2] = p.z; P[i * 3] = sz; P[i * 3 + 1] = p.op * Math.min(1, p.age / 0.04) * (1 - t) * (1 - t); P[i * 3 + 2] = p.rot;
     }
+    this.active = act; this.aOff.needsUpdate = true; this.aPar.needsUpdate = true; if (act === 0) this.mesh.visible = false;
   }
-  clear() { for (const p of this.list) { p.on = false; p.s.visible = false; } }
+  clear() { for (let i = 0; i < this.n; i++) { this.list[i].on = false; this.par[i * 3] = 0; this.par[i * 3 + 1] = 0; } this.active = 0; this.aPar.needsUpdate = true; this.mesh.visible = false; }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------------------
 // Little LCD readout (canvas texture, redrawn only when the key changes)
-// ---------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------------------
 export class LCD {
   constructor(w, h, draw) {
     this.w = w; this.h = h; this.canvas = document.createElement('canvas'); this.canvas.width = w; this.canvas.height = h;
@@ -355,32 +289,80 @@ export class LCD {
   set(key, ...args) { if (key === this.last) return; this.last = key; this.draw(this.ctx, this.w, this.h, key, ...args); this.tex.needsUpdate = true; }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// View space -> world space: where a viewmodel point appears on screen, expressed as a world point along the same pixel ray.
-// ---------------------------------------------------------------------------------------------------------------
-const _vm = new THREE.Matrix4(), _wa = new THREE.Vector3(), _wb = new THREE.Vector3(), _wf = new THREE.Vector3();
-export function viewToWorld(game, obj, out, ox = 0, oy = 0, oz = 0) {
-  const cam = game.camera, vc = game.viewCamera;
-  obj.updateWorldMatrix(true, false);
-  _wa.set(ox, oy, oz).applyMatrix4(obj.matrixWorld);
-  _vm.copy(vc.matrixWorld).invert();
-  _wb.copy(_wa).applyMatrix4(_vm); const depth = -_wb.z;
-  _wb.applyMatrix4(vc.projectionMatrix);
-  _wb.set(_wb.x, _wb.y, 0.5).unproject(cam).sub(cam.position).normalize();
-  cam.getWorldDirection(_wf);
-  const c = Math.max(0.2, _wb.dot(_wf));
-  return out.copy(cam.position).addScaledVector(_wb, depth / c);
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Ribbon arcs: n jagged additive lightning arcs of `seg` segments each (two crossed ribbons per segment so they read from any angle)
+// ---------------------------------------------------------------------------------------------------------------------------------
+export class Arcs {
+  constructor(parent, n, seg, mat) {
+    this.n = n; this.seg = seg; const vps = 8, verts = n * seg * vps;
+    this.pos = new Float32Array(verts * 3); const uv = new Float32Array(verts * 2), idx = [];
+    for (let a = 0; a < n; a++) for (let s = 0; s < seg; s++) for (let q = 0; q < 2; q++) {
+      const v = (a * seg + s) * vps + q * 4; uv.set([0, s / seg, 1, s / seg, 0, (s + 1) / seg, 1, (s + 1) / seg], v * 2);
+      idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
+    }
+    this.geo = new THREE.BufferGeometry(); this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage)); this.geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); this.geo.setIndex(idx);
+    this.mesh = new THREE.Mesh(this.geo, mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 7; parent.add(this.mesh);
+    this.pts = new Float32Array(n * (seg + 1) * 3); this.on = new Uint8Array(n);
+  }
+  // set arc i from A to B with jitter amplitude `amp` and ribbon half-width `w`
+  set(i, ax, ay, az, bx, by, bz, amp, w) {
+    const seg = this.seg, P = this.pts, o = i * (seg + 1) * 3;
+    for (let s = 0; s <= seg; s++) {
+      const t = s / seg, e = s === 0 || s === seg ? 0 : 1, j = amp * e * (Math.sin(t * 3.14159) * 0.8 + 0.2);
+      P[o + s * 3] = ax + (bx - ax) * t + (Math.random() - 0.5) * 2 * j; P[o + s * 3 + 1] = ay + (by - ay) * t + (Math.random() - 0.5) * 2 * j; P[o + s * 3 + 2] = az + (bz - az) * t + (Math.random() - 0.5) * 2 * j;
+    }
+    const V = this.pos;
+    for (let s = 0; s < seg; s++) {
+      const a = o + s * 3, b = a + 3; let dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2]; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+      // first perpendicular: d x (0,1,0) (or d x (1,0,0) when nearly vertical), second: d x p1
+      let px = dz, py = 0, pz = -dx; let pl = Math.hypot(px, pz); if (pl < 0.05) { px = 0; py = dz; pz = -dy; pl = Math.hypot(py, pz) || 1; } px /= pl; py /= pl; pz /= pl;
+      const qx = dy * pz - dz * py, qy = dz * px - dx * pz, qz = dx * py - dy * px;
+      const v = (i * seg + s) * 8 * 3;
+      const put = (k, x, y, z, sx, sy, sz, side) => { V[v + k * 3] = x + sx * side * w; V[v + k * 3 + 1] = y + sy * side * w; V[v + k * 3 + 2] = z + sz * side * w; };
+      put(0, P[a], P[a + 1], P[a + 2], px, py, pz, -1); put(1, P[a], P[a + 1], P[a + 2], px, py, pz, 1); put(2, P[b], P[b + 1], P[b + 2], px, py, pz, -1); put(3, P[b], P[b + 1], P[b + 2], px, py, pz, 1);
+      put(4, P[a], P[a + 1], P[a + 2], qx, qy, qz, -1); put(5, P[a], P[a + 1], P[a + 2], qx, qy, qz, 1); put(6, P[b], P[b + 1], P[b + 2], qx, qy, qz, -1); put(7, P[b], P[b + 1], P[b + 2], qx, qy, qz, 1);
+    }
+    this.on[i] = 1; this.dirty = true;
+  }
+  hide(i) { if (!this.on[i]) return; this.on[i] = 0; const v = i * this.seg * 8 * 3, V = this.pos; V.fill(0, v, v + this.seg * 8 * 3); this.dirty = true; }
+  flush() { if (this.dirty) { this.geo.attributes.position.needsUpdate = true; this.dirty = false; } }
+  hideAll() { for (let i = 0; i < this.n; i++) this.hide(i); this.flush(); }
 }
 
-// True when the straight segment eye -> muzzle is free of world geometry AND enemies (a projectile spawned at the muzzle beyond a point-blank enemy would never hit it).
-const _cpD = new THREE.Vector3();
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Hands: a right (trigger) hand and a left (support) hand gripping vertical rods, baked into `parts`. The forearms stay live (pointArm).
+// grip = centre of the vertical rod the palm wraps, in gun space. rake = grip tilt (rad, positive = top forward like a pistol).
+// ---------------------------------------------------------------------------------------------------------------------------------
+export const POSE_TRIGGER = { i: [0.55, 0.65, 0.5], m: [1.4, 1.5, 0.95], r: [1.44, 1.52, 0.95], p: [1.4, 1.55, 0.9], t: { yaw: 0.10, pitch: -0.95, roll: 0.15, c: [0.10, 0.25, 0.30] } };
+export const POSE_GRIP = { i: [1.30, 1.45, 0.9], m: [1.42, 1.5, 0.95], r: [1.46, 1.55, 0.95], p: [1.44, 1.55, 0.9], t: { yaw: 0.10, pitch: -0.55, roll: 0.15, c: [0.10, 0.20, 0.20] } };
+export function gripHand(kit, side, gun, parts, pos, rot, pose, opts = {}) {
+  const h = new Hand(kit, { side, freeze: true, keep: opts.keep ?? (side === 'R' ? ['index'] : []), pose, sleeveLen: opts.sleeveLen ?? 0.6, knuckleStuds: false });
+  h.place(pos, rot); gun.add(h.group); if (parts) h.bake(parts, gun);
+  return h;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Shader pre-warm. main.js compiles every program of the world scene + the view scene in parallel (against the composer's render-target variant) and uploads
+// every texture, walking INVISIBLE objects too. Projectile / effect prototypes are built lazily otherwise (first shot = ~7 programs compiled mid-fight), so
+// park a spare instance of each in the scene (invisible, far below the floor): the boot-time warm-up then covers it. Clones share materials + geometry.
+// ---------------------------------------------------------------------------------------------------------------------------------
+export function park(game, obj) {
+  if (!obj) return obj;
+  obj.traverse((o) => { o.frustumCulled = false; });
+  obj.position.set(0, -500, 0); obj.visible = false; game.scene.add(obj);
+  return obj;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// View space helpers for projectiles
+// ---------------------------------------------------------------------------------------------------------------------------------
+const _cpD = new THREE.Vector3(), _aimT = new THREE.Vector3();
+// True when the straight segment eye -> muzzle is free of world geometry AND enemies (a projectile spawned beyond a point-blank enemy would never hit it).
 export function clearPath(game, a, b) {
   _cpD.copy(b).sub(a); const d = _cpD.length(); if (d < 1e-4) return true; _cpD.multiplyScalar(1 / d);
-  const h = game.combat.castRay(a, _cpD, d); return !h;
+  return !game.combat.castRay(a, _cpD, d);
 }
-
 // Aim: direction from `from` to the point the crosshair is on (world or enemy), falling back to the aim ray.
-const _aimT = new THREE.Vector3();
 export function aimDir(game, from, out, maxDist = 200) {
   const ray = game.player.getAimRay();
   const hit = game.combat.castRay(ray.origin, ray.dir, maxDist);
@@ -389,9 +371,4 @@ export function aimDir(game, from, out, maxDist = 200) {
   if (out.lengthSq() < 0.25 || out.dot(ray.dir) < 0) out.copy(ray.dir); else out.normalize();
   return out;
 }
-
-// Right/up vectors of the world camera (for ejecting casings, etc.)
-export function camBasis(game, right, up) {
-  const q = game.camera.quaternion;
-  right.set(1, 0, 0).applyQuaternion(q); up.set(0, 1, 0).applyQuaternion(q);
-}
+export { mulberry32 };

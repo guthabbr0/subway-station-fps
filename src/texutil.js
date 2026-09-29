@@ -6,6 +6,10 @@ export function mulberry32(seed) {
   return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
+// Texture-memory switch: ?texfull=1 restores the original full-size textures everywhere (A/B comparisons); the default shrinks assets whose detail is lower-frequency than their
+// resolution (normal / roughness maps, enemy atlases, decal atlases, vfx sprite atlas): same look at a third to a quarter of the memory and generation cost.
+export const TEX_FULL = typeof location !== 'undefined' && /[?&]texfull=1/.test(location.search);
+
 // Draw into a canvas and wrap as a texture. drawFn(ctx, w, h). opts: {repeat:[x,y], srgb=true, aniso=4, wrap=true}
 export function canvasTexture(w, h, drawFn, opts = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;

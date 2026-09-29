@@ -7,12 +7,14 @@
 // Extras: voice cap + per-name rate/concurrency limits, ambience scheduler (hum, wind, drips, PA chime, vents, far moans, flicker),
 //      dynamic tension bed during fights, heartbeat + muffle at low health, tinnitus/concussion after nearby blasts, hit-confirm ticks
 //      from the enemy:hit bus event, pause/hidden-tab suspend, main-thread fallback if Workers are unavailable.
-// Sample layer (src/audio/samples.js): CC-licensed recordings for monsters / gore are fetched + decoded lazily after resume() and either replace or
-//      sit under the synth voice of the same name (per-role policy table MIX); same panner / bus / voice limiter / rate limiter. game.audio.setSamples(bool)
-//      or ?samples=0 turns the layer off for A/B. game.audio.samples exposes counts / info().
-// Chainsaw: game.audio.chainsaw = { ready, state, start, stop, setThrottle, setLoad, bite, rev, setLayers, tune, reset, dispose } (src/audio/chainsawBridge.js) drives the
-//      RPM-driven worklet engine (chainsawEngine.js) as a 2D first-person sound through the sfx bus / limiter, with optional recorded layers under it. Legacy
-//      sawStart / sawIdle / sawFull / sawHit synth sounds keep working unchanged.
+// Sample layer (src/audio/samples.js): CC-licensed recordings for monsters / gore / chainsaw are fetched + decoded lazily after resume(). Two human-curated groups
+//      (assets/audio/human-monsters, human-chainsaw) are first-class; the older groups (monsters-oga, monsters-other, chainsaw) stay as extra variants in the same shuffle bag
+//      (?oldsamples=0 drops them). Per-role policy table MIX decides whether a clip replaces or sits under the synth voice of the same name; same panner / bus / voice
+//      limiter / rate limiter. game.audio.setSamples(bool) or ?samples=0 turns the whole layer off for A/B. game.audio.samples exposes counts / info().
+// Chainsaw: game.audio.chainsaw = { ready, state, start, stop, setThrottle, setLoad, bite, rev, setMode, setLayers, setLayerDb, setEngineDb, tune, reset, dispose } (src/audio/chainsawBridge.js)
+//      drives the RPM-driven worklet engine (chainsawEngine.js) as a 2D first-person sound through the sfx bus / limiter, with the recorded layers of src/audio/chainsawLayers.js
+//      (pull-cord + catch, pitch-following idle / full / loaded beds, bite transients, gore bed, shutdown). ?saw=synth|mixed|samples picks the mode (mixed default);
+//      tools/chainsaw-ab.html is the listening page. Legacy sawStart / sawIdle / sawFull / sawHit synth sounds keep working unchanged.
 // Verification: await game.audio.analyze() renders every sound in-page and returns peak/RMS/duration/centroid rows;
 //      node tools/audio-stats.mjs prints the same in Node (+ --wav / --png dumps); game.audio.tap() gives a MediaStream of the master output.
 import { AUDIO_NAMES, bus } from './core.js';
@@ -37,9 +39,10 @@ export function create(game) {
   const rnd = (a, b) => a + Math.random() * (b - a);
   const mf = { cur: 20000, hit: 0 };  // master low-pass state (low-health muffle, concussion)
   const flag = game.params?.get?.('samples') ?? (typeof location !== 'undefined' ? new URLSearchParams(location.search).get('samples') : null);
-  const sbase = game.params?.get?.('samplebase') ?? (typeof location !== 'undefined' ? new URLSearchParams(location.search).get('samplebase') : null);   // ?samplebase=/path/ hosts assets/audio elsewhere (tests / CDN)
-  const samples = createSamples({ ctx: () => ctx, enabled: flag !== '0', base: sbase ? new URL(sbase.endsWith('/') ? sbase : sbase + '/', location.href).href : undefined, warn: (...a) => console.warn('[audio]', ...a) });
-  const chainsaw = createChainsawBridge({ ctx: () => ctx, dest: () => sfxBus, reverb: () => revIn, samples, warn: (...a) => console.warn('[audio]', ...a) });
+  const urlParam = (k) => game.params?.get?.(k) ?? (typeof location !== 'undefined' ? new URLSearchParams(location.search).get(k) : null);
+  const sbase = urlParam('samplebase');   // ?samplebase=/path/ hosts assets/audio elsewhere (tests / CDN)
+  const samples = createSamples({ ctx: () => ctx, enabled: flag !== '0', legacy: urlParam('oldsamples') !== '0', base: sbase ? new URL(sbase.endsWith('/') ? sbase : sbase + '/', location.href).href : undefined, warn: (...a) => console.warn('[audio]', ...a) });
+  const chainsaw = createChainsawBridge({ ctx: () => ctx, dest: () => sfxBus, reverb: () => revIn, samples, mode: urlParam('saw'), warn: (...a) => console.warn('[audio]', ...a) });   // ?saw=synth|mixed|samples
   const amb = { on: false, hum: null, wind: null, bed: null, tension: 0, tDrip: 2, tChime: 40, tVent: 12, tClank: 25, tFlick: 8, tMoan: 45, tPA: 1e9, paX: 0, paZ: 0 };
 
   // ---------------------------------------------------------------------------------------------------------

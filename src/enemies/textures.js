@@ -1,9 +1,10 @@
 // Procedural canvas texture atlases for enemies. One 1024x512 atlas per (type, outfit); geometry is shared, so an
 // "outfit" is purely a different painting of the same regions.
 import * as THREE from 'three';
-import { canvasTexture, mulberry32 } from '../texutil.js';
+import { canvasTexture, mulberry32, TEX_FULL } from '../texutil.js';
 
-export const AW = 1024, AH = 512;
+export const AW = 1024, AH = 512;   // atlas DESIGN size: every painter and region rectangle below works in these coordinates
+const DIV = TEX_FULL ? 1 : 2;      // actual canvas = design size / DIV (a 1.8 m character is at most a few hundred px tall on screen; 16 atlases went from 43 MB to ~11 MB)
 // name: [x, y, w, h] in canvas pixels
 export const REG = {
   face: [0, 0, 256, 256], torso: [256, 0, 384, 256], uarm: [640, 0, 128, 128], farm: [768, 0, 128, 128], thigh: [896, 0, 128, 128],
@@ -11,7 +12,7 @@ export const REG = {
   metal: [0, 256, 256, 128], extra: [256, 256, 256, 128], extra2: [512, 256, 256, 128], shoe: [768, 256, 128, 64], hair: [896, 256, 128, 64],
 };
 export function uvRect(name, inset = 1.5) {
-  const [x, y, w, h] = REG[name];
+  const [x, y, w, h] = REG[name]; inset *= DIV; // keep the same inset in TEXELS so region borders do not bleed into each other at the lower resolution
   return { u0: (x + inset) / AW, du: (w - 2 * inset) / AW, v0: 1 - (y + h - inset) / AH, dv: (h - 2 * inset) / AH };
 }
 
@@ -505,7 +506,8 @@ const PAINT = {
 export function makeAtlas(type, outfit, seed) {
   const O = OUTFITS[type][outfit];
   const rnd = mulberry32(seed * 7919 + outfit * 104729 + type.length * 131);
-  return canvasTexture(AW, AH, (ctx) => {
+  return canvasTexture(AW / DIV, AH / DIV, (ctx) => {
+    if (DIV > 1) ctx.scale(1 / DIV, 1 / DIV);
     ctx.fillStyle = '#6a6a6a'; ctx.fillRect(0, 0, AW, AH);
     for (const name of Object.keys(REG)) {
       const [x, y, w, h] = REG[name];

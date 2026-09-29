@@ -65,7 +65,7 @@ export function create(game) {
     x.fillStyle = g; x.fillRect(0, 0, 64, 64);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
-  const fxMat = (hex) => fxMats[hex] || (fxMats[hex] = new THREE.MeshBasicMaterial({ color: hex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  const fxMat = (hex) => fxMats[hex] || (fxMats[hex] = new THREE.MeshBasicMaterial({ color: hex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, fog: false }));
   const haloMat = (hex) => haloMats[hex] || (haloMats[hex] = new THREE.SpriteMaterial({ map: haloTex, color: hex, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 
   function getNode(kind) {
@@ -327,6 +327,10 @@ export function create(game) {
 
   return {
     list, root, spawn, remove, clear, reset, update, dropFromEnemy, supplyDrop, kinds: PICKUP_KINDS,
-    init() { game.scene.add(root); },
+    init() {
+      game.scene.add(root);
+      // build one model per kind now (pooled for the first spawn) and compile their programs: the first supply drop otherwise builds geometry and compiles two programs mid-game
+      for (const kind of Object.keys(DEFS)) { try { const n = getNode(kind); n.kind = kind; (pool[kind] || (pool[kind] = [])).push(n); game.warm?.(n.node); } catch (e) { console.warn('[pickups] prewarm failed for', kind, e); } }
+    },
   };
 }

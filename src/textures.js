@@ -1,7 +1,7 @@
 // Procedural surface textures + materials for the subway station. Everything is canvas-generated once at init.
 // Each surface set = albedo (sRGB) + tangent normal map (from a height field) + "rm" map (G = roughness, B = metalness).
 import * as THREE from 'three';
-import { mulberry32 } from './texutil.js';
+import { mulberry32, TEX_FULL } from './texutil.js';
 
 if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
   CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r = 0) {
@@ -82,8 +82,19 @@ export function mkTex(canvas, { srgb = false, repeat = true, aniso = 8 } = {}) {
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = aniso; return t;
 }
+// Normal and roughness/metalness maps carry lower-frequency detail than the albedo (grime, seams and print stay full resolution), so for sets of 512 px and up they are built at
+// half resolution: the same look at a third of the memory (a 1024 set drops from 16 MB to ~8 MB resident with mips), a quarter of the generation work and less texture bandwidth.
+// ?texfull=1 restores the full-size maps for A/B comparisons.
+const SHRINK = !TEX_FULL;
+export function halve(f, w, h) {
+  const w2 = w >> 1, h2 = h >> 1, o = new Float32Array(w2 * h2);
+  for (let y = 0; y < h2; y++) { const r0 = 2 * y * w, r1 = r0 + w, ro = y * w2; for (let x = 0; x < w2; x++) { const i = r0 + 2 * x, j = r1 + 2 * x; o[ro + x] = (f[i] + f[i + 1] + f[j] + f[j + 1]) * 0.25; } }
+  return o;
+}
 function makeSet(albedo, hgt, rough, metal, w, h, ns = 2) {
-  return { map: mkTex(albedo, { srgb: true }), normalMap: mkTex(normalCanvas(hgt, w, h, ns)), rmMap: mkTex(rmCanvas(rough, metal, w, h)) };
+  const map = mkTex(albedo, { srgb: true });
+  if (SHRINK && w >= 512 && h >= 512) { hgt = halve(hgt, w, h); rough = halve(rough, w, h); if (metal) metal = halve(metal, w, h); w >>= 1; h >>= 1; }
+  return { map, normalMap: mkTex(normalCanvas(hgt, w, h, ns)), rmMap: mkTex(rmCanvas(rough, metal, w, h)) };
 }
 // per-pixel colour pass helper: fn(i, x, y, d /*Uint8ClampedArray*/, di /*pixel byte index*/) mutates.
 function pixelPass(ctx, w, h, fn) {
@@ -141,7 +152,8 @@ function tileSets() {
     });
     return a;
   };
-  const nrm = mkTex(normalCanvas(hgt, W, W, 3.2)), rm = mkTex(rmCanvas(rough, null, W, W));
+  const half = SHRINK, hh = half ? halve(hgt, W, W) : hgt, rr = half ? halve(rough, W, W) : rough, W2 = half ? W >> 1 : W;
+  const nrm = mkTex(normalCanvas(hh, W2, W2, 3.2)), rm = mkTex(rmCanvas(rr, null, W2, W2));
   return {
     cream: { map: mkTex(albedoFor([234, 229, 210], [128, 122, 108], 1.0, 21), { srgb: true }), normalMap: nrm, rmMap: rm },
     green: { map: mkTex(albedoFor([24, 78, 60], [104, 108, 96], 0.85, 22), { srgb: true }), normalMap: nrm, rmMap: rm },
@@ -386,31 +398,32 @@ export function puddleTex(size = 256, seed = 4) {
 }
 
 // ---------------------------------------------------------------------------------------------- public API
-export function buildTextures() {
+// async only so the loading bar can repaint between the ~15 texture sets (each is 20-300 ms of typed-array work); yieldFn is optional
+export async function buildTextures(yieldFn) {
   const P = {}, timing = {};
-  const T = (name, fn) => { const t0 = performance.now(); const r = fn(); timing[name] = Math.round(performance.now() - t0); return r; };
-  const tiles = T('tiles', tileSets);
+  const T = async (name, fn) => { const t0 = performance.now(); const r = fn(); timing[name] = Math.round(performance.now() - t0); if (yieldFn) await yieldFn(); return r; };
+  const tiles = await T('tiles', tileSets);
   P.tileCream = tiles.cream; P.tileGreen = tiles.green;
-  P.floor = T('floor', floorSet);
-  P.concrete = T('concrete', () => concreteSet([0.92, 0.97, 1.0], 201));
-  P.paintGreen = T('paint', () => metalSet({ base: [34, 74, 62], seed: 11, rust: 0.05, metal: 0.05, chip: 0.10, gloss: 0.38 }));
-  P.steel = T('steel', () => metalSet({ base: [78, 82, 88], seed: 12, rust: 0.04, metal: 1.0, chip: 0.0, gloss: 0.42 }));
-  P.galv = T('galv', () => metalSet({ base: [150, 156, 162], seed: 13, rust: 0.03, metal: 0.9, chip: 0.0, gloss: 0.38, spangle: true, ribs: 4 }));
-  P.rust = T('rust', () => metalSet({ base: [92, 54, 36], seed: 14, rust: 0.7, metal: 0.4, chip: 0.05, gloss: 0.6 }));
-  P.yellow = T('yellow', () => metalSet({ base: [196, 148, 22], seed: 15, rust: 0.04, metal: 0.05, chip: 0.12, gloss: 0.4 }));
-  P.ballast = T('ballast', ballastSet);
-  P.tactile = T('tactile', tactileSet);
-  P.hazard = T('hazard', hazardTex);
-  P.shutter = T('shutter', shutterSet);
-  P.wood = T('wood', woodSet);
-  P.rubber = T('rubber', rubberSet);
+  P.floor = await T('floor', floorSet);
+  P.concrete = await T('concrete', () => concreteSet([0.92, 0.97, 1.0], 201));
+  P.paintGreen = await T('paint', () => metalSet({ base: [34, 74, 62], seed: 11, rust: 0.05, metal: 0.05, chip: 0.10, gloss: 0.38 }));
+  P.steel = await T('steel', () => metalSet({ base: [78, 82, 88], seed: 12, rust: 0.04, metal: 1.0, chip: 0.0, gloss: 0.42 }));
+  P.galv = await T('galv', () => metalSet({ base: [150, 156, 162], seed: 13, rust: 0.03, metal: 0.9, chip: 0.0, gloss: 0.38, spangle: true, ribs: 4 }));
+  P.rust = await T('rust', () => metalSet({ base: [92, 54, 36], seed: 14, rust: 0.7, metal: 0.4, chip: 0.05, gloss: 0.6 }));
+  P.yellow = await T('yellow', () => metalSet({ base: [196, 148, 22], seed: 15, rust: 0.04, metal: 0.05, chip: 0.12, gloss: 0.4 }));
+  P.ballast = await T('ballast', ballastSet);
+  P.tactile = await T('tactile', tactileSet);
+  P.hazard = await T('hazard', hazardTex);
+  P.shutter = await T('shutter', shutterSet);
+  P.wood = await T('wood', woodSet);
+  P.rubber = await T('rubber', rubberSet);
   P._timing = timing;
   return P;
 }
 
 // Materials shared by the whole station. `vertexColors` on everything so baked grime/AO in vertex colours works.
-export function createMaterials(P, renderer) {
-  const aniso = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() ?? 4);
+export function createMaterials(P, renderer, maxAniso = 8) {
+  const aniso = Math.min(maxAniso, renderer?.capabilities?.getMaxAnisotropy?.() ?? 4); // maxAniso comes from the quality level (game.aniso)
   for (const k in P) for (const t of Object.values(P[k])) if (t?.isTexture) t.anisotropy = aniso;
   const std = (p, { metal = false, env = 0.6, ns = 1, color = 0xffffff, rough = 1 } = {}) => new THREE.MeshStandardMaterial({
     map: p.map, normalMap: p.normalMap, normalScale: new THREE.Vector2(ns, ns), roughnessMap: p.rmMap, metalnessMap: metal ? p.rmMap : null,

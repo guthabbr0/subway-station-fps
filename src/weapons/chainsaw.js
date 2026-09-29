@@ -1,29 +1,33 @@
 // CHAINSAW - the flagship melee weapon. Files: this one (fire logic, lunge, animation, integration) + chainsaw/{model,chain,fx,blood,paint,engine}.js
 //   gameplay : Doom II chainsaw, better. 4 tics (4/35 s) per attack while fire is held, 2*(1d10) damage, 2.05 m reach, no ammo. Sawing a target drags you
-//              in and swings the view onto it (never through enemies / walls / the platform edge; running away or turning the mouse overrides it); killing
-//              blows frequently shred the victim into gibs; secondary fire (right mouse) revs the engine.
+//              in and swings the view onto it (stops a body-length short of the target, never through enemies / walls / the platform edge; running away or
+//              turning the mouse overrides it); enemies.js decides on gibs (it shreds ~60% of saw kills); secondary fire (right mouse) revs the engine.
 //   viewmodel: two-handed orange/black two-stroke saw, real instanced chain that motion-blurs with engine rpm, tremor scaled by rpm + load, pull-cord start
 //              (left hand yanks the starter, the saw jerks, the engine catches with a shudder and a puff), exhaust smoke, oil fling, sparks on masonry/metal,
 //              blood that accumulates on the bar / chain / gloves and slowly wipes off, gore flecks flung at the lens.
-//   audio    : game.audio.chainsaw (RPM-driven engine) through ./chainsaw/engine.js: start on select, throttle on fire, load + bite per tooth, stop on
-//              deselect / death / pause. Falls back to the legacy sawStart / sawIdle / sawFull / sawHit sounds when the audio module has no engine.
+//   audio    : game.audio.chainsaw (RPM-driven engine) through ./chainsaw/engine.js: start once the saw is 40% raised (so the cord yanks are seen), throttle on
+//              fire, load + bite per tooth, stop (and release the trigger) on deselect / death / reset / pause. Falls back to the legacy sawStart / sawIdle / sawFull / sawHit sounds when the audio module has no engine.
 //   debug    : weapon.dbg = {c:[x,y,z], yaw, pitch, dist} orbits a debug camera around the saw (screenshots); set to null to return to the normal view.
 import * as THREE from 'three';
 import { Weapon } from './base.js';
 import { bus, clamp, randInt, TIC } from '../core.js';
-import { getKit, meleeProbe, trackFire, flashPulse, flashDecay, flashKill, warmup } from './kit_a.js';
+import { getKit, trackFire, flashPulse, flashDecay, flashKill, warmup } from './kit_a.js';
+import { solidMeleeProbe } from './chainsaw/los.js';
 import { buildSaw, gripPose } from './chainsaw/model.js';
 import { SawFX } from './chainsaw/fx.js';
 import { SawEngine } from './chainsaw/engine.js';
 import { makeBloodUniforms } from './chainsaw/blood.js';
 import { BAR } from './chainsaw/chain.js';
 
-const HIT_S = 4 * TIC, RANGE = 2.05, WORLD_REACH = 1.5;
-const GIB_CHANCE = { shambler: 0.62, runner: 0.72, trooper: 0.58, spitter: 0.62, exploder: 1, brute: 0.3, tyrant: 0.12 };
-const LUNGE_SPEED = 2.6, LUNGE_GAP = 0.30, TURN_RATE = 1.5;
+const HIT_S = 4 * TIC, RANGE = 2.05, WORLD_REACH = 1.5, START_RAISE = 0.4;   // START_RAISE: the starter cord is pulled once the saw is 40% raised (the hands only come into view late in the raise)
+const LUNGE_SPEED = 2.6, LUNGE_GAP = 0.30, LUNGE_MIN = 1.06, TURN_RATE = 1.5;   // the drag never brings the player closer than LUNGE_MIN (centre to centre) to its target
+// vfx.impact() draws a bullet-hole decal for every surface except 'train' (the moving train must not get world-space holes). A saw gouges, it does not drill,
+// so hard surfaces use that no-decal path for the sparks / chips / dust and get a scorch scrape from vfx.decal() instead. (No dedicated flag exists in vfx.js: see report.)
+const NO_HOLE = 'train';
 
 const _p = new THREE.Vector3(), _d = new THREE.Vector3(), _v = new THREE.Vector3(), _vi = new THREE.Matrix4(), _qa = new THREE.Quaternion(), _h = new THREE.Vector3(), _hy = new THREE.Vector3();
 const g_shake = (g, v) => g.player?.shake?.(v);
+const _dmg = { point: null, dir: null, type: 'saw', source: 'player', part: 'torso', dist: 0 };   // one options object for every enemies.damage() call (no per-tick garbage)
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 export default class Chainsaw extends Weapon {
@@ -36,11 +40,12 @@ export default class Chainsaw extends Weapon {
     this.hitT = 0; this.firing = false; this.inFlesh = false; this.relT = 0; this.lockT = 0; this.target = null; this._lastKill = null; this._cutTarget = null; this._tickN = 0;
     // animation state
     this.trig = 0; this.selT = 0; this.tickKick = 0; this.catchKick = 0; this.loadV = 0; this.lhL = 0; this.shudder = 0.3; this.rollKick = 0; this.jerk = 0;
-    this.aimR = [0.35, -0.75, 0.55]; this.aimL = [-0.50, -0.75, 0.45];
+    this.aimR = [0.35, -0.75, 0.55]; this.aimL = [-0.25, -0.86, 0.44];
     this.revCd = 0; this.revT = 0; this._altPrev = false; this.idleT = 2;
     this.puffAcc = 0; this.hazeAcc = 0; this.oilAcc = 0; this.dripAcc = 0; this.dbg = null;
+    this._scarT = this._holeT = -9; this._scarX = this._scarY = this._scarZ = 0;
     bus.on('game:start', () => { this.bloodLevel = 0; this.fresh = 1; this.fx?.clear(); if (this.game.weapons?.current !== this) this.engine.stop(); });
-    bus.on('player:dead', () => { this.engine.stop(); this.firing = false; });
+    bus.on('player:dead', () => { this.engine.stop(); this.releaseTrigger(); });
     bus.on('enemy:killed', (ev) => { if (ev.enemy === this._cutTarget) this._lastKill = ev; });
   }
 
@@ -50,13 +55,13 @@ export default class Chainsaw extends Weapon {
     this.S = buildSaw(g, kit, this.U);
     const S = this.S; this.saw = S.saw; this.chain = S.chain; this.handR = S.handR; this.handL = S.handL; this.idxF = S.idxF; this.trigger = S.trigger; this.cord = S.cord; this.pts = S.pts;
     model.add(S.saw); this.saw.rotation.set(0.16, 0.62, -0.08);
-    for (const h of [S.handL, S.handR]) h.arm.scale.set(0.8, 0.8, 1);
+    for (const h of [S.handL, S.handR]) h.arm.scale.set(0.7, 0.7, 1);
     this.muzzle = S.pts.nose;
     this.fx = new SawFX(g);
     this.engine.warm();
     this._contact = new THREE.Object3D(); this.saw.add(this._contact);
     // left-hand poses (grip centre + orientation, saw-local): A = overhand on the front handle, B = gripping the pull cord
-    this.lhA = { T: new THREE.Vector3(-0.030, 0.2035, -0.150), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(1.0, -0.8, -0.5, 'YXZ')) };
+    this.lhA = { T: new THREE.Vector3(-0.030, 0.2035, -0.150), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, -0.35, -0.6, 'YXZ')) };
     this.lhB = { q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55, 0.60, 0.2, 'YXZ')) };
     return model;
   }
@@ -64,15 +69,17 @@ export default class Chainsaw extends Weapon {
   // ------------------------------------------------------------------------------------------------------------------------------ select / audio gating
   _canRun() { const g = this.game; return g.state === 'playing' && g.player.alive && g.weapons.current === this && this.selected && this.dir > 0; }
   onSelect() {
-    this.selT = 0; this.firing = false; this.inFlesh = false; this.relT = 0; this.lockT = 0; this.target = null; this.hitT = 0.05; this.loadV = 0; this.lhL = 0; this.revT = 0; this.revCd = 0;
-    this.engine.pull = 0;
-    if (this._canRun()) this.engine.start();
+    this.releaseTrigger(); this.selT = 0; this.hitT = 0.05; this.lhL = 0; this.revCd = 0; this._scarT = this._holeT = -9;
+    this.fx?.clear();                                                   // particles only age while this weapon is up: never resume a half-faded splat from the last fight
+    this.engine.pull = 0;                                               // the engine is started by _gate() once the saw is far enough up for the pull-cord yanks to be seen
   }
+  // let go of everything the trigger was doing (deselect / pause / death): no held throttle, no cutting load, no lunge target
+  releaseTrigger() { this.firing = false; this.inFlesh = false; this.relT = 0; this.revT = 0; this.lockT = 0; this.target = null; this.loadV = 0; }
   onDeselect() {
-    this.firing = false; this.lockT = 0; this.target = null; this.loadV = 0;
+    this.releaseTrigger();
     this.engine.stop(); flashKill(this.game);
   }
-  _gate() { const want = this._canRun(); if (want && !this.engine.on) { this.engine.start(); this.selT = Math.min(this.selT, 0.1); } else if (!want && this.engine.on) { this.engine.stop(); this.firing = false; } }
+  _gate() { const want = this._canRun(); if (want && !this.engine.on) { if (this.raise >= START_RAISE) { this.engine.start(); this.selT = Math.min(this.selT, 0.1); } } else if (!want && this.engine.on) { this.engine.stop(); this.releaseTrigger(); } }
 
   update(dt, ctx) {
     if (!this.game.__waWarm) warmup(this.game);
@@ -109,31 +116,7 @@ export default class Chainsaw extends Weapon {
     return this._toView(this._contact, out);
   }
 
-  // kit_a's melee probe forgives 0.3-0.42 m of slop so enemies pressed against a wall can be hit; that also lets a tooth reach an enemy standing just BEHIND a thin
-  // solid (a column). Re-check the eye -> chest line against the solid world boxes and demote the hit to a world contact when something is in the way.
-  _blocked(o, e) {
-    const tx = e.pos.x, ty = e.pos.y + (e.height || 1.7) * 0.6, tz = e.pos.z, dx = tx - o.x, dy = ty - o.y, dz = tz - o.z;
-    for (const b of this.game.world.boxes) {
-      if (!b.enabled || !b.solid || b.hitscan === false || b.surface === 'train') continue;
-      if (tx >= b.min.x && tx <= b.max.x && ty >= b.min.y && ty <= b.max.y && tz >= b.min.z && tz <= b.max.z) continue;
-      let t0 = 0, t1 = 1;
-      if (Math.abs(dx) < 1e-9) { if (o.x < b.min.x || o.x > b.max.x) continue; } else { let a = (b.min.x - o.x) / dx, c = (b.max.x - o.x) / dx; if (a > c) { const q = a; a = c; c = q; } if (a > t0) t0 = a; if (c < t1) t1 = c; }
-      if (t0 > t1) continue;
-      if (Math.abs(dy) < 1e-9) { if (o.y < b.min.y || o.y > b.max.y) continue; } else { let a = (b.min.y - o.y) / dy, c = (b.max.y - o.y) / dy; if (a > c) { const q = a; a = c; c = q; } if (a > t0) t0 = a; if (c < t1) t1 = c; }
-      if (t0 > t1) continue;
-      if (Math.abs(dz) < 1e-9) { if (o.z < b.min.z || o.z > b.max.z) continue; } else { let a = (b.min.z - o.z) / dz, c = (b.max.z - o.z) / dz; if (a > c) { const q = a; a = c; c = q; } if (a > t0) t0 = a; if (c < t1) t1 = c; }
-      if (t0 <= t1 && t0 < 0.96) return true;
-    }
-    return false;
-  }
-  _probe() {
-    const g = this.game, pr = meleeProbe(g, RANGE, 0.42), ray = g.player.getAimRay();
-    if (pr.kind === 'enemy' && this._blocked(ray.origin, pr.enemy)) {
-      const wr = g.world.raycast(ray.origin, ray.dir, RANGE);
-      if (wr) { pr.kind = 'world'; pr.enemy = null; pr.dist = wr.dist; pr.surface = wr.surface; pr.point.copy(wr.point); pr.normal.copy(wr.normal); } else { pr.kind = null; pr.enemy = null; pr.dist = RANGE; }
-    }
-    return pr;
-  }
+  _probe() { return solidMeleeProbe(this.game, RANGE, 0.42); }     // kit_a's melee probe + a line-of-sight check (chainsaw/los.js): nothing is cut through a thin solid
 
   cut() {
     const g = this.game, p = g.player, E = this.engine, fx = this.fx;
@@ -142,18 +125,18 @@ export default class Chainsaw extends Weapon {
     this._viewInv();
     this.tickKick = 1; this._tickN++;
     if (pr.kind === 'enemy') {
-      const e = pr.enemy, part = pr.part || 'torso', mult = part === 'head' ? 2 : 1;
-      let amt = 2 * randInt(1, 10);                                    // Doom: 2*(1d10)
-      const would = e.hp - amt * mult <= 0;
-      if (would && Math.random() < (GIB_CHANCE[e.type] ?? 0.5)) amt = (e.hp + e.maxHp * 0.5 + 1) / mult;   // overkill -> enemies.js turns it into gibs
-      const knockBase = Math.min(5, 1 + amt * mult * 0.08);            // enemies.js adds this for 'saw'; cancel most of it: the saw holds them, it does not fling them
+      const e = pr.enemy, part = pr.part || 'torso';
+      const amt = 2 * randInt(1, 10);                                  // Doom: 2*(1d10), handed over untouched: enemies.js doubles headshots, adds the saw's small knock and decides on gibs itself
       this._lastKill = null; this._cutTarget = e;
-      const killed = g.enemies.damage(e, amt, { point: pr.point.clone(), dir: pr.dir.clone(), type: 'saw', source: 'player', part, knock: 0.35 - knockBase, dist: pr.dist });
+      _dmg.point = pr.point; _dmg.dir = pr.dir; _dmg.part = part; _dmg.dist = pr.dist;
+      const killed = g.enemies.damage(e, amt, _dmg);
+      _dmg.point = _dmg.dir = null;
       const gibbed = !!(this._lastKill && this._lastKill.gibbed); this._cutTarget = null;
-      const dmg = Math.min(20, 2 * Math.max(1, Math.round(amt / 2)));
+      // enemies.js flashes a hit target for 75 ms, which at 8.75 ticks/s keeps the whole body glowing orange: a sawed victim only pulses
+      if (!killed && e.flash > 0.03) e.flash = 0.03;
       // ---- audio + engine load
       const grab = !this.inFlesh; this.inFlesh = true;                // first tooth into meat after air / wall: the saw catches
-      const str = grab ? 1 : clamp(0.62 + dmg / 55 + (killed ? 0.1 : 0), 0.6, 1);
+      const str = grab ? 1 : clamp(0.62 + amt / 55 + (killed ? 0.1 : 0), 0.6, 1);
       const heavy = (e.def?.mass ?? 1) >= 3;                            // brutes / tyrants: the teeth really bog down
       E.setLoad(heavy ? 1 : 0.86); E.bite(str, 'flesh', pr.point); this.loadV = 1;
       // ---- blood on the tool
@@ -176,14 +159,22 @@ export default class Chainsaw extends Weapon {
       // ---- lunge lock
       if (!killed) { this.target = e; this.lockT = 0.45; } else { this.lockT = Math.min(this.lockT, 0.1); }
     } else if (pr.kind === 'world' && pr.dist <= WORLD_REACH) {
-      const sf = pr.surface, wood = sf === 'wood' || sf === 'glass', metal = sf === 'metal' || sf === 'train';
-      this.inFlesh = false; E.setLoad(0.5); E.bite(metal ? 0.85 : 0.6, wood ? 'wood' : 'metal', pr.point); this.loadV = 0.55;
-      g.vfx?.impact?.(pr.point, pr.normal, (this._tickN & 3) === 0 ? sf : 'train');   // 'train' = sparks + chips without a bullet-hole decal: a saw gouges, it does not drill
+      const sf = pr.surface, soft = sf === 'wood' || sf === 'glass', metal = sf === 'metal' || sf === 'train', now = g.time;
+      this.inFlesh = false; E.setLoad(0.5); E.bite(metal ? 0.85 : 0.6, soft ? 'wood' : 'metal', pr.point); this.loadV = 0.55;
+      if (soft) { if (now - this._holeT > 0.4) { this._holeT = now; g.vfx?.impact?.(pr.point, pr.normal, sf); } }       // chips fly; the pooled decal it leaves is a fair gouge in wood / glass
+      else {
+        g.vfx?.impact?.(pr.point, pr.normal, NO_HOLE);
+        const moved = Math.abs(pr.point.x - this._scarX) + Math.abs(pr.point.y - this._scarY) + Math.abs(pr.point.z - this._scarZ);
+        if ((now - this._scarT > 0.28 && moved > 0.1) || now - this._scarT > 1.2) {                                       // a dark scrape wherever the tooth has travelled, never a bullet hole
+          this._scarT = now; this._scarX = pr.point.x; this._scarY = pr.point.y; this._scarZ = pr.point.z;
+          g.vfx?.decal?.(pr.point, pr.normal, 'scorch', 0.13 + Math.random() * 0.1);
+        }
+      }
       if (this._tickN & 1) g.audio?.play?.(metal ? 'impactMetal' : 'impactConcrete', pr.point, { volume: 0.35, rate: 1.6 });
       this._barPoint(0.75 + Math.random() * 0.25, _p);
-      if (!wood) fx.sparks(_p.x, _p.y, _p.z, -0.15, 0.55, 1.0, metal ? 20 : 14, metal ? 1.2 : 0.9);
+      if (!soft) fx.sparks(_p.x, _p.y, _p.z, -0.15, 0.55, 1.0, metal ? 20 : 14, metal ? 1.2 : 0.9);
       else fx.sparks(_p.x, _p.y, _p.z, -0.1, 0.5, 1.0, 5, 0.6);
-      flashPulse(g, this.muzzle, wood ? 0.25 : 0.55, wood ? 0xffb060 : 0xffc880);
+      flashPulse(g, this.muzzle, soft ? 0.25 : 0.55, soft ? 0xffb060 : 0xffc880);
       p.shake(0.34); this.kickBack(0.012, 0.035, 0.003, 0.008); this.rollKick = 1;
       this.lockT = 0; this.target = null;
     } else {
@@ -200,7 +191,7 @@ export default class Chainsaw extends Weapon {
     const yawT = Math.atan2(-dx, -dz), dy = angDiff(yawT, p.yaw);
     const mdx = Math.abs(g.input?.mouseDX || 0), assist = mdx > 40 ? 0 : 1 - mdx / 40;               // the player's own mouse turn always wins
     if (Math.abs(dy) < 1.05 && Math.abs(dy) > 0.012) p.yaw += clamp(dy * Math.min(1, dt * 6), -TURN_RATE * dt, TURN_RATE * dt) * assist;
-    const stopD = e.radius + p.radius + LUNGE_GAP, away = (p.vel.x * dx + p.vel.z * dz) / dist;         // running away (>1.5 m/s) cancels the drag
+    const stopD = Math.max(LUNGE_MIN, e.radius + p.radius + LUNGE_GAP), away = (p.vel.x * dx + p.vel.z * dz) / dist;         // running away (>1.5 m/s) cancels the drag
     if (dist > stopD && p.grounded && p.alive && away > -1.5) {
       const step = Math.min(dist - stopD, LUNGE_SPEED * dt), nx = p.pos.x + dx / dist * step, nz = p.pos.z + dz / dist * step;
       if (g.world.groundAt(nx, nz, p.pos.y, 0.45) > -900) {

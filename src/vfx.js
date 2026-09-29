@@ -325,6 +325,9 @@ export function create(game) {
     },
 
     // ------------------------------------------------------------------------------------------------ per-frame
+    // quality controller (perf.js): particle + decal budgets, 1 = full
+    setBudget(fx = 1, dec = 1) { add.setBudget(fx); alp.setBudget(fx); decals.setBudget(dec); },
+
     update(dt) {
       T += dt; uTime.value = T; stainBudget = 8; impactBudget = Math.min(20, impactBudget + dt * 60);
       lights.update(dt);

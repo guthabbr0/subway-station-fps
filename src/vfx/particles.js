@@ -72,7 +72,7 @@ void main() {
 
 export class BillboardBatch {
   constructor(scene, { atlas, additive, capacity, renderOrder = 3 }) {
-    this.cap = capacity; this.n = 0; this.d = new Float32Array(capacity * ST);
+    this.cap = this.capMax = capacity; this.n = 0; this.d = new Float32Array(capacity * ST);
     this.onStain = null; this.audioHook = null;
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]), 3));
@@ -115,6 +115,9 @@ export class BillboardBatch {
   }
 
   clear() { this.n = 0; this.geo.instanceCount = 0; }
+
+  // quality controller: cap the live particle count (existing particles finish naturally; new ones are dropped while the batch is over the cap)
+  setBudget(k) { this.cap = Math.max(96, Math.floor(this.capMax * k)); }
 
   update(dt) {
     const d = this.d, ap = this.aPos.array, ac = this.aCol.array, aq = this.aPar.array, ad = this.aDir.array;

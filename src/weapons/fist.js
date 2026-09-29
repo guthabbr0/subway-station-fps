@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { Weapon } from './base.js';
 import { bus, randInt, TIC } from '../core.js';
-import { getKit, Hand, POSES, keyframe, smooth, meleeProbe, trackFire, warmup } from './kit_a.js';
+import { getKit, Hand, POSES, keyframe, smooth, trackFire, warmup } from './kit_a.js';
+import { solidMeleeProbe as meleeProbe } from './chainsaw/los.js'; // fists must not reach enemies behind thin solids
 
 const K_DRIVE = [[0, 0], [2.2, -0.6], [4.6, 1], [8, 0.4], [14, 0]];
 const CYCLE = 14 * TIC;

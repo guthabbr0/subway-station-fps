@@ -36,7 +36,7 @@ export const DECAL_RINGS = { hole: 0, blood: 1, scorch: 2 };
 
 export class DecalBatch {
   constructor(scene, atlas, uTime, { holes = 120, blood = 72, scorch = 24 } = {}) {
-    this.ranges = [[0, holes], [holes, holes + blood], [holes + blood, holes + blood + scorch]];
+    this.ranges = [[0, holes], [holes, holes + blood], [holes + blood, holes + blood + scorch]]; this.full = [holes, blood, scorch]; this.sizes = this.full.slice();
     this.next = [0, 0, 0]; this.cap = holes + blood + scorch; this.dirty = false;
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]), 3));
@@ -53,7 +53,7 @@ export class DecalBatch {
   }
 
   add(ring, now, px, py, pz, nx, ny, nz, size, frame, r, g, b, a, life, fade, rot) {
-    const rg = this.ranges[ring], lo = rg[0], hi = rg[1], i = lo + this.next[ring]; this.next[ring] = (this.next[ring] + 1) % (hi - lo);
+    const lo = this.ranges[ring][0], n = this.sizes[ring], i = lo + this.next[ring]; this.next[ring] = (this.next[ring] + 1) % n;
     const k = i * 4;
     this.aPos.array[k] = px; this.aPos.array[k + 1] = py; this.aPos.array[k + 2] = pz; this.aPos.array[k + 3] = rot;
     this.aNrm.array[k] = nx; this.aNrm.array[k + 1] = ny; this.aNrm.array[k + 2] = nz; this.aNrm.array[k + 3] = size;
@@ -61,6 +61,9 @@ export class DecalBatch {
     this.aTime.array[k] = frame; this.aTime.array[k + 1] = now; this.aTime.array[k + 2] = life; this.aTime.array[k + 3] = fade;
     this.dirty = true;
   }
+
+  // quality controller: shrink the ring buffers (older decals beyond the smaller ring just fade out on their own schedule)
+  setBudget(k) { this.sizes = this.full.map((n) => Math.max(4, Math.floor(n * k))); for (let r = 0; r < 3; r++) this.next[r] %= this.sizes[r]; }
 
   clear() { this.aTime.array.fill(0); this.next[0] = this.next[1] = this.next[2] = 0; this.dirty = true; }
 

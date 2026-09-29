@@ -20,7 +20,7 @@ export class SawEngine {
     // ---- outputs (read by the viewmodel)
     this.rpm = 0; this.mode = 0; this.pull = 0; this.caught = 0; this.fromAudio = false;
     // ---- audio bookkeeping
-    this._sentThr = -1; this._sentLoad = -1; this._watched = null; this._dead = null; this._legacyLoop = null; this._legacyKind = null; this._wd = 0; this._lastBite = -9; this._stopAt = 0; this._aRpm = -1; this._aSame = 0; this.revBoost = 0;
+    this._sentThr = -1; this._sentLoad = -1; this._watched = null; this._dead = null; this._legacyLoop = null; this._legacyKind = null; this._wd = 0; this._st = null; this._stT = 0; this._lastBite = -9; this._stopAt = 0; this._aRpm = -1; this._aSame = 0; this.revBoost = 0;
     // pause (pointer lock lost) / tab hidden / window blur do not run the weapon update: check immediately instead of waiting for the watchdog tick
     this._evt = () => queueMicrotask(() => this._guard());
     if (typeof document !== 'undefined') { document.addEventListener('pointerlockchange', this._evt); document.addEventListener('visibilitychange', this._evt); window.addEventListener('blur', this._evt); }
@@ -81,7 +81,7 @@ export class SawEngine {
   // watchdog: pause / menu / death do not run the weapon update, so make sure the engine never keeps howling behind a menu
   _guard() {
     const g = this.game, w = this.owner;
-    if (!(g.state === 'playing' && g.player?.alive && g.weapons?.current === w && w.selected && w.dir > 0)) this.stop();
+    if (this.on && !(g.state === 'playing' && g.player?.alive && g.weapons?.current === w && w.selected && w.dir > 0)) { this.stop(); w.releaseTrigger?.(); }
   }
   _killLegacy() { if (this._legacyLoop) { try { this._legacyLoop.stop(0.12); } catch (e) { /* ignore */ } this._legacyLoop = null; this._legacyKind = null; } }
 
@@ -113,7 +113,9 @@ export class SawEngine {
     }
     // ---- choose the source of truth: the audio engine's own state while it is alive and never BEHIND the local model (it lags by ~50 ms; the visuals must not
     //      regress from "running" back to "cranking" if its catch comes a little later), else the local model. A frozen rpm (suspended context) counts as dead.
-    const e = this.eng, st = e ? e.state : null;
+    // the bridge builds a fresh snapshot object on every read and its telemetry only changes ~20 times a second: poll it at that rate, not every frame
+    const e = this.eng; if (!e) this._st = null; else if ((this._stT -= dt) <= 0 || !this._st) { this._stT = 0.04; this._st = e.state; }
+    const st = e ? this._st : null;
     let mode = this.lMode, rpm = this.lRpm, pullRpm = this.lCrank, useAudio = false;
     if (st && st.mode > 0 && st.rpm === st.rpm && st.mode >= this.lMode) {
       if (st.rpm === this._aRpm) this._aSame += dt; else { this._aSame = 0; this._aRpm = st.rpm; }

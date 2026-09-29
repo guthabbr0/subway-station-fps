@@ -2,14 +2,14 @@
 // Tiles are painted once at init. RGB carries shading/heat, A carries the silhouette. Every tile fades to 0 alpha near its border
 // so mip-mapping never bleeds neighbours into each other.
 import * as THREE from 'three';
-import { mulberry32 } from '../texutil.js';
+import { mulberry32, TEX_FULL } from '../texutil.js';
 
 export const FRAME = {
   GLOW: 0, HOT: 1, SMOKE1: 2, SMOKE2: 3, FIRE1: 4, FIRE2: 5, STAR: 6, BURST: 7,
   RING: 8, STREAK: 9, SPLAT1: 10, HOLE: 11, SCORCH: 12, SPLAT2: 13, CRACK: 14, DISK: 15,
 };
 export const ATLAS_COLS = 4;
-const TS = 256, SIZE = ATLAS_COLS * TS, TAU = Math.PI * 2;
+const TS = TEX_FULL ? 256 : 128, SIZE = ATLAS_COLS * TS, TAU = Math.PI * 2; // 4x4 tiles of 128 px: the sprites are soft gradients / noise; 4x less to generate and sample
 const hyp = (a, b) => Math.sqrt(a * a + b * b);
 const c01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const sm = (a, b, x) => { const t = c01((x - a) / (b - a)); return t * t * (3 - 2 * t); };

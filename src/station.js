@@ -24,13 +24,14 @@ export function create(game) {
   S.init = async () => {
     const T = {}, t0 = performance.now(); let tl = t0;
     const lap = (k) => { const n = performance.now(); T[k] = Math.round(n - tl); tl = n; };
-    const P = buildTextures(); lap('textures'); const G = buildGraphics(game.renderer); lap('graphics'); const M = createMaterials(P, game.renderer);
+    const Y = game.yield ? () => game.yield() : () => {}; // lets the loading bar repaint between the heavy synchronous chunks
+    const P = await buildTextures(game.yield ? () => game.yield() : null); lap('textures'); await Y(); const G = buildGraphics(game.renderer); lap('graphics'); await Y(); const M = createMaterials(P, game.renderer, game.aniso || 8);
     const pt = puddleTex(256, 4);
     M.puddle = new THREE.MeshStandardMaterial({ color: 0xffffff, map: pt.color, roughness: 0.03, metalness: 0.0, alphaMap: pt.alpha, transparent: true, opacity: 0.9, depthWrite: false, vertexColors: true, envMapIntensity: 2.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     M.emit = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
     const c = makeCtx(game, M, G); S.ctx = c; c.S = S; lap('materials');
-    const light = buildLighting(c); S.lighting = light; updaters.push((dt, t) => light.update(dt, t)); lap('lighting');
-    buildStructure(c); lap('structure'); buildProps(c); lap('props'); buildEnds(c); lap('ends'); S.signage = buildSignage(c); lap('signage'); buildFX(c); lap('fx'); buildLife(c); lap('life'); buildPoints(c);
+    const light = buildLighting(c); S.lighting = light; updaters.push((dt, t) => light.update(dt, t)); lap('lighting'); await Y();
+    buildStructure(c); lap('structure'); buildProps(c); lap('props'); buildEnds(c); lap('ends'); await Y(); S.signage = buildSignage(c); lap('signage'); buildFX(c); lap('fx'); buildLife(c); lap('life'); buildPoints(c);
     for (const u of c.dynamic) updaters.push(u);
     c.flush(); lap('flush');
     game.scene.add(c.root); S.root = c.root;

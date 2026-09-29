@@ -2,12 +2,15 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../texutil.js';
 import { cv, rgb, hash2 } from '../textures.js';
+import { TEX_FULL } from '../texutil.js';
+const LOWF = TEX_FULL ? 1 : 0.5; // scale of the low-frequency atlases (grime / blood): half the resolution, a quarter of the memory
 
 const FONT = '"Helvetica Neue", Helvetica, Arial, "Liberation Sans", "DejaVu Sans", sans-serif';
 const font = (px, w = 'bold', it = '') => `${it} ${w} ${px}px ${FONT}`;
 
 export class Atlas {
-  constructor(size, gutter = 4) { this.size = size; this.g = gutter; this.c = cv(size, size); this.ctx = this.c.getContext('2d'); this.x = 0; this.y = 0; this.rowH = 0; this.rects = {}; }
+  // scale < 1: the canvas is smaller than the design space `size`; all coordinates (items, rects) stay in design units, the context is scaled once
+  constructor(size, gutter = 4, scale = 1) { this.size = size; this.g = gutter; this.c = cv(size * scale, size * scale); this.ctx = this.c.getContext('2d'); if (scale !== 1) this.ctx.scale(scale, scale); this.x = 0; this.y = 0; this.rowH = 0; this.rects = {}; }
   add(name, w, h, draw) {
     if (this.x + w + this.g > this.size) { this.x = 0; this.y += this.rowH + this.g; this.rowH = 0; }
     if (this.y + h > this.size) { console.warn('[station] atlas overflow', name); return; }
@@ -259,7 +262,7 @@ export function buildGraphics(renderer) {
   glowB.add('vend1', 256, 512, vending1); glowB.add('vend2', 256, 512, vending2); glowB.add('ticket', 256, 256, ticketScreen);
   G.glowB = glowB;
 
-  const decals = new Atlas(1024, 4);
+  const decals = new Atlas(1024, 4, LOWF);
   for (let i = 0; i < 3; i++) decals.add('streak' + i, 96, 256, (c, w, h) => streak(c, w, h, R, '38,32,26', 0.5));
   decals.add('rust0', 96, 256, (c, w, h) => streak(c, w, h, R, '150,74,30', 0.42)); decals.add('rust1', 96, 256, (c, w, h) => streak(c, w, h, R, '130,64,26', 0.4));
   decals.add('grime', 512, 96, (c, w, h) => grimeBase(c, w, h, R));
@@ -280,7 +283,7 @@ export function buildGraphics(renderer) {
   decals2.add('news0', 128, 128, (c, w, h) => newspaper(c, w, h, R, 0.3)); decals2.add('news1', 128, 128, (c, w, h) => newspaper(c, w, h, R, -0.5)); decals2.add('crumple', 96, 96, (c, w, h) => crumple(c, w, h, R));
   G.decals2 = decals2;
 
-  const blood = new Atlas(1024, 4);
+  const blood = new Atlas(1024, 4, LOWF);
   for (let i = 0; i < 3; i++) blood.add('splat' + i, 256, 256, (c, w, h) => bloodSplat(c, w, h, R, 0.9 + i * 0.25));
   blood.add('drag0', 512, 128, (c, w, h) => bloodDrag(c, w, h, R)); blood.add('drag1', 512, 128, (c, w, h) => bloodDrag(c, w, h, R));
   blood.add('hand0', 128, 128, (c, w, h) => bloodHand(c, w, h, R)); blood.add('hand1', 128, 128, (c, w, h) => bloodHand(c, w, h, R));
