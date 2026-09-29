@@ -20,15 +20,17 @@ export const CSS = `
   -webkit-mask:radial-gradient(circle,transparent 62%,#000 64%,#000 72%,transparent 74%);mask:radial-gradient(circle,transparent 62%,#000 64%,#000 72%,transparent 74%);filter:drop-shadow(0 0 .5em rgba(255,40,20,.8))}
 
 /* ---------- crosshair ---------- */
-.hx-xh{position:absolute;left:50%;top:50%;width:0;height:0;--g:5;transition:opacity .3s}
-.hx-xh i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.65),0 0 .5em rgba(255,255,255,.35);border-radius:1px;opacity:.92}
-.hx-xh .t,.hx-xh .b{width:2px;height:.72em;left:-1px}
-.hx-xh .l,.hx-xh .r{height:2px;width:.72em;top:-1px}
-.hx-xh .t{top:calc(-1 * (var(--g) * .0667em + .72em))}
+.hx-xh{position:absolute;left:50%;top:50%;width:0;height:0;--g:5;--a:0;transition:opacity .3s}
+.hx-xh i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.65),0 0 .5em rgba(255,255,255,.35);border-radius:1px;opacity:calc(.92 - .3 * var(--a))}
+/* --a = aim-down-sights blend (0 hip .. 1 aimed): the four ticks shorten, get thinner and dimmer, the centre dot stays: a small dot with a thin cross */
+.hx-xh{--len:calc(.72em * (1 - .5 * var(--a)))}
+.hx-xh .t,.hx-xh .b{width:calc(2px - .5px * var(--a));height:var(--len);left:calc(-1px + .25px * var(--a))}
+.hx-xh .l,.hx-xh .r{height:calc(2px - .5px * var(--a));width:var(--len);top:calc(-1px + .25px * var(--a))}
+.hx-xh .t{top:calc(-1 * (var(--g) * .0667em + var(--len)))}
 .hx-xh .b{top:calc(var(--g) * .0667em)}
-.hx-xh .l{left:calc(-1 * (var(--g) * .0667em + .72em))}
+.hx-xh .l{left:calc(-1 * (var(--g) * .0667em + var(--len)))}
 .hx-xh .r{left:calc(var(--g) * .0667em)}
-.hx-xh .d{width:3px;height:3px;left:-1.5px;top:-1.5px;border-radius:50%}
+.hx-xh .d{width:3px;height:3px;left:-1.5px;top:-1.5px;border-radius:50%;opacity:1}
 .hx-hm{position:absolute;left:50%;top:50%;width:0;height:0;opacity:0;color:#fff}
 .hx-hm i{position:absolute;width:2.5px;height:.62em;left:-1.25px;top:-1.6em;background:currentColor;transform-origin:50% 1.6em;box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 .5em currentColor;border-radius:1px}
 .hx-hm i:nth-child(1){transform:rotate(45deg)}.hx-hm i:nth-child(2){transform:rotate(135deg)}.hx-hm i:nth-child(3){transform:rotate(225deg)}.hx-hm i:nth-child(4){transform:rotate(315deg)}
@@ -169,6 +171,9 @@ export const CSS = `
 @keyframes hxbt{0%{transform:scale(1.5);letter-spacing:.5em}9%{transform:scale(1);letter-spacing:.14em}88%{transform:scale(1.03);letter-spacing:.16em}100%{transform:scale(1.08);letter-spacing:.2em}}
 @keyframes hxbl{0%{width:0}12%{width:0}26%{width:min(26em,88vw)}88%{width:min(26em,88vw)}100%{width:min(29em,90vw)}}
 @keyframes hxbs{0%{opacity:0;transform:translateY(.6em)}16%{opacity:0;transform:translateY(.6em)}30%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+
+/* ---------- ?hud=lite: no GPU-expensive CSS (debug switch for compositor glitches) ---------- */
+.hx-root.lite,.hx-root.lite *,.hx-root.lite *::before,.hx-root.lite *::after{filter:none!important;-webkit-mask:none!important;mask:none!important;clip-path:none!important;will-change:auto!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 
 /* ---------- dead ---------- */
 .hx-root.dead .hx-vitals,.hx-root.dead .hx-arms,.hx-root.dead .hx-side,.hx-root.dead .hx-slots{opacity:.25}

@@ -30,7 +30,7 @@ function columns(c) {
     const cz = s * COLUMN_Z, i = idx++;
     const g = grimeF({ floorY: 0, dirt: 0.5, seed: i * 1.7, low: 0.55, hi: 0.3 });
     const tk = (key, y0, y1, hw, col = W3, skip = '') => c.mb(key).box(cx - hw, y0, cz - hw, cx + hw, y1, cz + hw, { c: col, f: g, seg: 1.5, skip });
-    tk('tileDark', 0, 0.2, 0.36, [0.8, 0.82, 0.85], 'ny');
+    tk('concrete', 0, 0.2, 0.36, [0.85, 0.87, 0.9], 'ny'); // plinth (was 'tileDark': dark-green tile x baked grime x dark tint = a pure black 0.72 m box at the foot of all 32 columns)
     tk('tileGreen', 0.2, 1.2, 0.3, W3, 'ny');
     tk('brass', 1.2, 1.27, 0.305, [0.9, 0.82, 0.62]);
     tk('tileCream', 1.27, 2.6, 0.3);
@@ -147,8 +147,8 @@ function litter(c) {
   // backpack + duffel
   c.mb('plastic').box(14.2, 0, -3.6, 14.55, 0.42, -3.28, { c: [0.15, 0.32, 0.18], seg: 2 }); c.mb('plastic').box(14.25, 0.05, -3.28, 14.5, 0.25, -3.22, { c: [0.1, 0.22, 0.12] });
   c.mb('plastic').box(2.0, 0, 3.6, 2.7, 0.3, 3.9, { c: [0.35, 0.3, 0.15], seg: 2 });
-  // trash bags
-  for (const [x, z, r] of [[-15.6, 2.4, 0.3], [-15.35, 2.0, -0.4], [8.3, -2.35, 0.2], [24.6, -2.3, 0.6], [-1.6, 2.3, 0.1]]) { const s = 0.18; c.mb('plastic').box(x - s, 0, z - s, x + s * 1.1, 0.3, z + s, { c: [0.03, 0.03, 0.035], seg: 2 }); c.mb('plastic').box(x - 0.05, 0.3, z - 0.05, x + 0.07, 0.36, z + 0.05, { c: [0.03, 0.03, 0.035] }); }
+  // trash bags (albedo 0.085: at 0.03 they rendered as pure black boxes)
+  for (const [x, z, r] of [[-15.6, 2.4, 0.3], [-15.35, 2.0, -0.4], [8.3, -2.35, 0.2], [24.6, -2.3, 0.6], [-1.6, 2.3, 0.1]]) { const s = 0.18; c.mb('plastic').box(x - s, 0, z - s, x + s * 1.1, 0.3, z + s, { c: [0.085, 0.085, 0.095], seg: 2 }); c.mb('plastic').box(x - 0.05, 0.3, z - 0.05, x + 0.07, 0.36, z + 0.05, { c: [0.085, 0.085, 0.095] }); }
   // wet-floor A-frame sign (two leaning yellow panels with a warning sticker each side)
   const wf = (x, z, yaw) => {
     const th = 0.2, mm = new THREE.Matrix4(), q = new THREE.Quaternion(), yq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);

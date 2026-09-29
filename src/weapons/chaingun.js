@@ -18,7 +18,9 @@ const K_TRIG = [[0, 0], [0.02, 1], [0.12, 1], [0.2, 0]];
 export default class Chaingun extends Weapon {
   constructor(game) {
     super(game, { id: 'chaingun', name: 'CHAINGUN', slot: 4, ammoType: 'bullets', ammoPerShot: 1, raiseTime: 0.36, lowerTime: 0.26 });
-    this.rest.set(0.14, -0.15, -0.70); this.viewYaw = 0.34; this.viewPitch = 0.05;
+    this.rest.set(0.14, -0.15, -0.70);
+    // ADS: over the carry handle, the crosshair on the centre of the barrel cluster / shroud rim
+    this.adsSpec = { fov: 60, vfov: 60, depth: 0.6, rear: [0, 0.20, 0.13], front: [0, 0.05, -0.668], spread: 0.45 };
     this.nextShot = 0; this.spin = 0; this.spinAngle = 0; this.refire = 0; this.emptyT = 0; this.heat = 0; this.hot = 0; this.beltPos = 0; this.beltTarget = 0; this.smokeT = 0;
     this.trigT = 9; this.side = 1; this.ammoShown = -1; this._dbg = null;
   }

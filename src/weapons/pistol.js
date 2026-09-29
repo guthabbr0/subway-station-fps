@@ -11,7 +11,9 @@ const CYCLE = 14 * TIC;
 export default class Pistol extends Weapon {
   constructor(game) {
     super(game, { id: 'pistol', name: 'PISTOL', slot: 2, ammoType: 'bullets', ammoPerShot: 1, raiseTime: 0.30, lowerTime: 0.2 });
-    this.rest.set(0.10, -0.205, -0.31); this.viewYaw = 0.42; this.viewPitch = 0.09;
+    this.rest.set(0.10, -0.205, -0.31);
+    // ADS: the three-dot sights. Line of sight = the tops of the rear posts (gun space z 0.0305) and the front post (z -0.142); the rear posts sit `depth` m in front of the eye.
+    this.adsSpec = { fov: 60, vfov: 63, depth: 0.56, rear: [0, 0.0876, 0.0305], front: [0, 0.0894, -0.142], spread: 0.5 };
     this.t = 99; this.refire = 0; this.held = false; this._pf = false; this._edge = false;
     this.slide = 0; this.slideLock = 0; this.trig = 0; this.flashT = 0; this._dbgT = null;
   }
@@ -166,6 +168,6 @@ export default class Pistol extends Weapon {
     this.model.rotation.set(-(1 - r) * 0.35 + Math.sin(tm * 1.3) * 0.0015 + this.viewPitch, this.viewYaw, -(1 - r) * 0.1);
     // recoil muzzle-flip on top of the spring
     const flip = keyframe(K_FLIP, t, smooth);
-    this.gun.rotation.x = flip * 0.045; this.gun.position.z = -0.03 + flip * 0.012;
+    const rk = this.recoilK; this.gun.rotation.x = flip * 0.045 * rk; this.gun.position.z = -0.03 + flip * 0.012 * rk; // (recoilK: x0.7 while aimed)
   }
 }

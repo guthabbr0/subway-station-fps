@@ -22,10 +22,10 @@ void main() {
   float run = k * (L + S); float s1 = min(run, L); float s0 = clamp(run - S, 0.0, L);
   vec3 h3 = tA + d * s1; vec3 t3 = tA + d * s0; vec3 mid = 0.5 * (h3 + t3);
   float dist = length(cameraPosition - mid);
-  float w = clamp(tP.z, dist * 0.0017, max(dist * 0.008, dist * 0.0017));
+  float w = max(clamp(tP.z, dist * 0.0017, max(dist * 0.008, dist * 0.0017)), 1e-4);
   float len = s1 - s0; float cap = w * 3.0;
   float x = position.x + 0.5;
-  vec3 toCam = normalize(cameraPosition - mid); vec3 side = cross(d, toCam); float sl = length(side);
+  vec3 tc = cameraPosition - mid; vec3 toCam = tc / max(length(tc), 1e-4); vec3 side = cross(d, toCam); float sl = length(side);
   side = sl > 1e-4 ? side / sl : vec3(0.0, 1.0, 0.0);
   vec3 wp = t3 + d * (x * (len + cap)) + side * position.y * w * 4.0;
   vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
@@ -44,7 +44,7 @@ void main() {
   float head = exp(-(hx * hx * 0.9 + y * y * 0.55)) * step(-0.6, xh);
   float a = body * (core + halo) + head * 1.15;
   vec3 col = mix(vC.rgb, vec3(1.0), clamp(core * body * 0.55 + head * 0.7, 0.0, 1.0));
-  gl_FragColor = vec4(col * (a * vC.a * vLen.y), 1.0);
+  gl_FragColor = vec4(min(max(vec3(0.0), col * (a * vC.a * vLen.y)), vec3(1024.0)), 1.0);
 }`;
 
 export const TRACER_STYLES = {
@@ -64,12 +64,13 @@ export class TracerBatch {
     this.cap = cap; this.next = 0; this.uTime = uTime; this.dirty = false;
     const g = quadGeo();
     this.aA = attr(g, 'tA', cap, 3); this.aB = attr(g, 'tB', cap, 3); this.aP = attr(g, 'tP', cap, 4); this.aC = attr(g, 'tC', cap, 4);
-    for (let i = 0; i < cap; i++) this.aP.array[i * 4 + 1] = 1; // life 1, t0 = 0 -> expired at time > 1 (reset() pushes t0 far into the past)
+    for (let i = 0; i < cap; i++) { this.aP.array[i * 4] = -1e6; this.aP.array[i * 4 + 1] = 1; } // every slot starts expired (t0 far in the past; it used to be t0 = 0, i.e. 448 degenerate ribbons were 'alive' for the first second of the app)
     g.instanceCount = cap;
     const mat = additive(new THREE.ShaderMaterial({ uniforms: { uTime }, vertexShader: TVERT, fragmentShader: TFRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
     this.mesh = new THREE.Mesh(g, mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; scene.add(this.mesh);
   }
   add(now, ax, ay, az, bx, by, bz, style) {
+    if (!Number.isFinite(ax + ay + az + bx + by + bz)) return; // NaN endpoints (e.g. a NaN muzzle position) would poison the instance buffer
     const s = TRACER_STYLES[style] || TRACER_STYLES.bullet, i = this.next; this.next = (this.next + 1) % this.cap;
     const dx = bx - ax, dy = by - ay, dz = bz - az, L = Math.sqrt(dx * dx + dy * dy + dz * dz), S = Math.min(s[5], L);
     const life = Math.min(s[7], Math.max(0.055, (L + S) / s[6]));
@@ -90,8 +91,8 @@ varying vec2 vQ; varying vec4 vC; varying float vE;
 void main() {
   if (bP.y <= 0.001) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vQ = vec2(0.0); vC = vec4(0.0); vE = 0.0; return; }
   vec3 dv = bB - bA; float L = length(dv); vec3 d = dv / max(L, 1e-4); vec3 mid = 0.5 * (bA + bB);
-  float dist = length(cameraPosition - mid); float w = max(bP.x, dist * 0.002);
-  vec3 toCam = normalize(cameraPosition - mid); vec3 side = cross(d, toCam); float sl = length(side);
+  vec3 tc = cameraPosition - mid; float dist = length(tc); float w = max(max(bP.x, dist * 0.002), 1e-4);
+  vec3 toCam = tc / max(dist, 1e-4); vec3 side = cross(d, toCam); float sl = length(side);
   side = sl > 1e-4 ? side / sl : vec3(0.0, 1.0, 0.0);
   float x = position.x + 0.5; float along = x * (L + 2.0 * w) - w;
   vec3 wp = bA + d * along + side * position.y * w * 5.0;
@@ -107,7 +108,7 @@ void main() {
   float cap = exp(-vE * vE * 1.6);
   float a = (core + halo) * cap * vC.a;
   vec3 col = mix(vC.rgb, vec3(1.0), core * 0.6);
-  gl_FragColor = vec4(col * a, 1.0);
+  gl_FragColor = vec4(min(max(vec3(0.0), col * a), vec3(1024.0)), 1.0);
 }`;
 
 const SEG_PER_BEAM = 14; // 10 main + 2 forks x 2
@@ -129,6 +130,7 @@ export class BeamBatch {
     this._u = new THREE.Vector3(); this._v = new THREE.Vector3(); this._d = new THREE.Vector3(); this._p = new THREE.Vector3(); this._q = new THREE.Vector3();
   }
   add(ax, ay, az, bx, by, bz, life, width, r, g, b, intensity, amp) {
+    if (!Number.isFinite(ax + ay + az + bx + by + bz + life + width + amp) || !(life > 0)) return;
     const i = this.next; this.next = (this.next + 1) % this.nBeams;
     this.ax[i * 3] = ax; this.ax[i * 3 + 1] = ay; this.ax[i * 3 + 2] = az; this.bx[i * 3] = bx; this.bx[i * 3 + 1] = by; this.bx[i * 3 + 2] = bz;
     this.age[i] = 0; this.life[i] = life; this.width[i] = width; this.amp[i] = amp; this.tick[i] = 1e9; this.active[i] = 1;

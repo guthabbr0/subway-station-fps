@@ -30,7 +30,7 @@ function hanging(c, S) {
     for (const dz of [-w * 0.42, w * 0.42]) st.cyl(0, 0, dz, 0, yc + h / 2 + 0.03, dz, 0.008, { segs: 4, c: [0.5, 0.5, 0.52] });
     st.box(-0.05, yc - h / 2 - 0.03, -w / 2 - 0.03, 0.05, yc + h / 2 + 0.03, w / 2 + 0.03, { c: [0.22, 0.24, 0.27], seg: 4 });
     for (const sgn of [1, -1]) { const uv = c.G.glowA.rects[name]; gl.oq(sgn * 0.052, yc, 0, sgn, 0, 0, w, h, uv, { c: W3, tint: 0.95 }); }
-    const m1 = new THREE.Mesh(st.build(), c.M.steel), m2 = new THREE.Mesh(gl.build(), c.G.mat.glowA); g.add(m1); g.add(m2); c.add(g);
+    const m1 = new THREE.Mesh(st.build(), c.M.steel), m2 = new THREE.Mesh(gl.build(), c.G.mat.glowA); m2.userData.layer = 'signs'; g.add(m1); g.add(m2); c.add(g); // (userData.layer: F7 scene-layer isolation, src/station/layers.js)
     // tiny caps where rods meet the ceiling
     c.mb('steel').box(x - 0.05, 6.95, -w * 0.42 - 0.05, x + 0.05, 7, w * 0.42 + 0.05, { c: [0.3, 0.3, 0.33] });
     S.swing.push({ g, ph: i * 1.7, a: 0.012 + 0.006 * (i % 3), w: 0.55 + 0.1 * (i % 4) });
@@ -47,8 +47,8 @@ function boards(c, S) {
     for (const dz of [-W * 0.4, W * 0.4]) st.cyl(0, 0, dz, 0, yc + H / 2, dz, 0.009, { segs: 4, c: [0.5, 0.5, 0.52] });
     st.box(-0.07, yc - H / 2 - 0.04, -W / 2 - 0.04, 0.07, yc + H / 2 + 0.04, W / 2 + 0.04, { c: [0.14, 0.15, 0.17], seg: 4 });
     for (const sgn of [1, -1]) gl.oq(sgn * 0.072, yc, 0, sgn, 0, 0, W, H, [0, 0, 1, 1], { c: W3, tint: 1.0 });
-    const mat = new THREE.MeshBasicMaterial({ map: tex, fog: true, vertexColors: true, toneMapped: true });
-    g.add(new THREE.Mesh(st.build(), c.M.steel)); g.add(new THREE.Mesh(gl.build(), mat)); c.add(g);
+    const mat = new THREE.MeshBasicMaterial({ map: tex, fog: true, vertexColors: true, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // (the face sits 2 mm in front of the housing: without the offset it z-fought with it beyond ~30 m)
+    const face = new THREE.Mesh(gl.build(), mat); face.userData.layer = 'signs'; g.add(new THREE.Mesh(st.build(), c.M.steel)); g.add(face); c.add(g);
     S.swing.push({ g, ph: bi * 2.3 + 0.5, a: 0.006, w: 0.5 });
     S.boards.push({ ctx, tex, last: '', bi });
   });
@@ -93,7 +93,7 @@ function clock(c, S) {
   st.cyl(0, 0, 0, 0, yc + R, 0, 0.012, { segs: 4, c: [0.5, 0.5, 0.52] });
   st.cyl(-0.06, yc, 0, 0.06, yc, 0, R + 0.03, { segs: 24, cap: true, c: [0.18, 0.2, 0.22] });
   for (const sgn of [1, -1]) gl.oq(sgn * 0.062, yc, 0, sgn, 0, 0, R * 2, R * 2, [0, 0, 1, 1], { c: W3, tint: 0.95 });
-  g.add(new THREE.Mesh(st.build(), c.M.steel)); g.add(new THREE.Mesh(gl.build(), new THREE.MeshBasicMaterial({ map: tex, fog: true, vertexColors: true }))); c.add(g);
+  g.add(new THREE.Mesh(st.build(), c.M.steel)); const dial = new THREE.Mesh(gl.build(), new THREE.MeshBasicMaterial({ map: tex, fog: true, vertexColors: true, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })); dial.userData.layer = 'signs'; g.add(dial); c.add(g); // alphaTest: the round face is drawn on a cleared (transparent black) canvas: an opaque material showed a black square behind it
   S.clock = { ctx, tex, size, last: -1 }; S.swing.push({ g, ph: 4.1, a: 0.008, w: 0.6 });
 }
 function drawClock(k, secs) {

@@ -39,6 +39,11 @@ export function create(game, hooks) {
   P.adaptive = adaptParam === '1' ? true : adaptParam === '0' ? false : !(pinned || game.testMode); // tests / probes / pinned presets never adapt
   P.startLevel = P.level;
   P.bloomForcedOff = params.get('bloom') === '0'; // legacy switch used by tests and screenshots
+  // Budget for the TOTAL drawing-buffer pixels (the scene target, the canvas and every full-frame pass scale with it; a 4K window at DPR 1 is 8.3 Mpx, 7680x4320 at DPR 2 is 33 Mpx = ~1 GB of
+  // targets and 4-8 fps on an integrated GPU, and it is where drivers misbehave first). main.js lowers the pixel ratio (below 1 when necessary; the compositor upscales) to stay inside it.
+  // ?maxpx=<Mpx> overrides (0 = unlimited, still limited by the hardware); default 2.6 Mpx (1080p at DPR 1.25), 8.5 Mpx for the 'ultra' rung on a strong GPU, none in test mode.
+  const maxpxParam = params.has('maxpx') ? Math.max(0, parseFloat(params.get('maxpx')) || 0) : null;
+  P.pixelCap = () => (maxpxParam !== null ? maxpxParam : game.testMode ? 0 : LADDER[P.level].name === 'ultra' && !P.weakGpu ? 8.5 : 2.6);
 
   // nominal effect of a rung; the device pixel ratio is applied by the caller at resize time (it can change while playing: zoom, monitor switch)
   const eff = (i) => { const L = LADDER[i]; return { dpr: L.dpr, bloom: P.bloomForcedOff ? 'off' : L.bloom, fx: L.fx, decals: L.decals }; };
@@ -104,11 +109,12 @@ export function create(game, hooks) {
   const ensureOverlay = () => {
     if (overlay) return overlay;
     overlay = document.createElement('pre'); overlay.id = 'perf-overlay';
-    overlay.style.cssText = 'position:fixed;left:8px;top:8px;margin:0;padding:6px 8px;z-index:40;pointer-events:none;font:11px/1.35 ui-monospace,Consolas,Menlo,monospace;color:#9fe8a8;background:rgba(0,0,0,.62);border:1px solid rgba(159,232,168,.35);white-space:pre;display:none';
+    overlay.style.cssText = 'position:fixed;left:8px;top:8px;margin:0;padding:6px 8px;z-index:40;pointer-events:none;font:11px/1.35 ui-monospace,Consolas,Menlo,monospace;color:#9fe8a8;background:rgba(0,0,0,.62);border:1px solid rgba(159,232,168,.35);white-space:pre-wrap;max-width:min(1100px,calc(100vw - 16px));overflow:hidden;display:none';
     document.body.appendChild(overlay); return overlay;
   };
   P.toggleOverlay = (on) => {
     P.overlayOn = on === undefined ? !P.overlayOn : !!on; const o = ensureOverlay(); o.style.display = P.overlayOn ? 'block' : 'none';
+    if (game.post) game.post.probeEvery = P.overlayOn || params.has('nancheck') ? 10 : 0; // the HDR probe (Inf / NaN detector, src/post.js) runs only while the overlay is open or ?nancheck=1
     try { localStorage.setItem('perfOverlay', P.overlayOn ? '1' : '0'); } catch (e) { /* storage may be blocked */ }
     overlayT = 0;
   };
@@ -118,15 +124,39 @@ export function create(game, hooks) {
   };
   P.updateOverlay = (dtSec, info) => {
     if (!P.overlayOn) return; overlayT -= dtSec; if (overlayT > 0) return; overlayT = 0.25;
-    P.stats(); const r = game.renderer, e = LADDER[P.level], sz = r.getDrawingBufferSize(_v2), post = game.post;
+    P.stats(); const r = game.renderer, e = LADDER[P.level], sz = r.getDrawingBufferSize(_v2), post = game.post, bb = game.bb, pl = game.pipeline;
+    if (bb) bb.pollGL();
+    if (post && !post.probeEvery) post.probeEvery = 10;
     const mem = performance && performance.memory ? ` heap ${(performance.memory.usedJSHeapSize / 1048576).toFixed(0)}MB` : '';
-    overlay.textContent =
-      `${P.fps.toFixed(0).padStart(3)} fps  ${P.ms.toFixed(1)} ms  p95 ${P.p95.toFixed(1)}\n` +
-      `draws ${P.calls}  tris ${(P.tris / 1000).toFixed(0)}k  prog ${info.programs ? info.programs.length : 0}  geo ${info.memory.geometries}  tex ${info.memory.textures}${mem}\n` +
-      `quality ${e.name} [${P.level}]${P.adaptive ? ' auto' : ' fixed'}  ${sz.x}x${sz.y} @${r.getPixelRatio().toFixed(2)}  bloom ${post ? post.mode : 'legacy'}  fx ${e.fx}\n` +
-      `enemies ${game.enemies ? game.enemies.aliveCount?.() : 0}  steps ${P.steps}${P.log.length ? '  last: ' + P.log[P.log.length - 1].name : ''}\nF3 hide - Shift+F3 next quality (stops auto)`;
+    const gi = bb ? bb.gpuInfo() : {}, W = (t) => (t.length > 96 ? t.slice(0, 95) + '~' : t);
+    const cssW = innerWidth, cssH = innerHeight, dev = window.devicePixelRatio || 1;
+    const pl_ = post ? post.passList() : [], full = post ? `${post.w}x${post.h}` : '-';
+    const bl = post && post.bloom ? `bright ${post.bloom.bright.width}x${post.bloom.bright.height} + ${post.bloom.n} mips (h+v each) ${post.bloom.ver.map((t) => t.width + 'x' + t.height).join(' ')} + composite ${post.bloom.out.width}x${post.bloom.out.height}` : 'off';
+    const ev = P.log.slice(-3).map((x) => `${x.t}s ${x.name}${x.why ? ' (' + String(x.why).replace(/median /, '').slice(0, 26) + ')' : ''}`).join('  ');
+    const lines = [
+      `${P.fps.toFixed(0).padStart(3)} fps  ${P.ms.toFixed(1)} ms  p95 ${P.p95.toFixed(1)}   draws ${P.calls}  tris ${(P.tris / 1000).toFixed(0)}k  prog ${info.programs ? info.programs.length : 0}  geo ${info.memory.geometries}  tex ${info.memory.textures}${mem}`,
+      W(`GPU ${gi.renderer || '?'}`), W(`${gi.webgl || '?'} | prec ${gi.precision || '?'} | maxTex ${gi.maxTex || '?'} | ${game.hdr && !game.hdr.ok ? 'RT RGBA8 FALLBACK (no half-float)' : 'RT half-float'}${post && !post.sanitize ? ' | NOSAN' : ''}`),
+      `buffer ${sz.x}x${sz.y} @${r.getPixelRatio().toFixed(2)}  (window ${cssW}x${cssH} dpr ${dev.toFixed(2)})  ${sz.x * sz.y / 1e6 < 100 ? (sz.x * sz.y / 1e6).toFixed(2) : '?'} Mpx  cap ${pl && pl.capMpx ? pl.capMpx + ' Mpx' : 'none'}${pl && pl.reason ? '  LIMITED: ' + pl.reason : ''}`,
+      `passes ${pl_.length}: world ${full} + weapon ${full} + final ${full} | bloom ${bl} | target mem ${post ? (post.memoryBytes() / 1048576).toFixed(1) : '?'} MB`,
+      hdrLine(post),
+      `quality ${e.name} [${P.level}]${P.adaptive ? ' auto' : ' fixed'}  bloom ${post ? post.mode : 'legacy'}  fx ${e.fx}  steps ${P.steps}  enemies ${game.enemies ? game.enemies.aliveCount?.() : 0}`,
+      `events: ${ev || 'none'}`,
+      `patches ${game.shaderPatches ? game.shaderPatches.applied.join(',') || 'none' : '-'}${game.shaderPatches && game.shaderPatches.requested === 'lightpatch' ? ' (+light early-out)' : ''}  ctx lost ${bb ? bb.ctx.lost : 0}${bb && bb.ctx.prevLost ? ' (+' + bb.ctx.prevLost + ' before reload)' : ''}  GL errors ${bb ? bb.glErr.count : 0}${bb && bb.glErr.last ? ' ' + bb.glErr.last : ''}  shader problems ${bb ? bb.shaderErrors.length : 0}  console warn ${bb ? bb.errCount.warn || 0 : 0} err ${bb ? (bb.errCount.error || 0) + (bb.errCount.exception || 0) : 0}`,
+    ];
+    if (bb && bb.mode) lines.push(`ISOLATION MODE ${bb.mode}: ${bb.MODES[bb.mode].label}`);
+    if (pl) { const bad = pl.verify(); if (bad.length) lines.push('SIZE MISMATCH: ' + bad.slice(0, 2).join('; ')); }
+    if (bb) { for (const x of bb.shaderErrors.slice(-2)) lines.push(W('SHADER: ' + (x.fragment || x.vertex || x.link).replace(/\s+/g, ' '))); const last = bb.errors.filter((x) => x.kind !== 'context').slice(-2); for (const x of last) lines.push(W(`${x.kind} ${x.t}s: ${x.msg.replace(/\s+/g, ' ')}`)); }
+    lines.push('F3 hide - Shift+F3 next quality (stops auto) - F4 isolation mode - F6 copy diagnostics');
+    overlay.textContent = lines.join('\n');
   };
   const _v2 = new game.THREE.Vector2();
+  // the HDR probe (post.js): is anything Inf / NaN in the scene target? Sticky counters so a transient (one bad frame in a thousand) is still visible when the overlay is read later.
+  const hdrLine = (post) => {
+    if (!post) return 'HDR probe: -'; const H = post.hdr, c = H.cur;
+    if (H.error) return 'HDR probe: unavailable (' + H.error + ')';
+    if (!c) return 'HDR probe: waiting…';
+    return `HDR scene target: ${c.count > 0 ? 'NON-FINITE x' + Math.round(c.count) + ' at ' + c.x.toFixed(2) + ',' + c.y.toFixed(2) : 'clean'}  max ${c.max.toFixed(0)}  peak ${H.maxEver.toFixed(0)}  bad frames ${H.badFrames}/${H.runs}${H.last ? '  last at ' + H.last.x + ',' + H.last.y + ' (x' + Math.round(H.last.count) + ')' : ''}`;
+  };
 
   addEventListener('keydown', (ev) => {
     if (ev.code === 'F3') { ev.preventDefault(); if (ev.shiftKey) { P.adaptive = false; P.apply((P.level + 1) % LADDER.length, 'manual'); } else P.toggleOverlay(); }

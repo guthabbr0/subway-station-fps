@@ -16,21 +16,23 @@ export function buildTrain() {
   for (let i = 0; i < K.CAR_COUNT - 1; i++) buildGap(G, K.carU(i) + K.HALF, K.carU(i + 1) - K.HALF);
 
   const M = {};
+  // faces that sit a few millimetres in front of the body / ceiling (lamps, LED signs, ceiling strips) get a polygon offset: 2 mm .. 6 mm is less than one depth step beyond ~30 m, so they z-fought (flickered)
+  const po = (m) => { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = -2; return m; };
   M.body = new THREE.MeshStandardMaterial({ map: T.body, normalMap: T.bodyN, normalScale: new THREE.Vector2(0.75, 0.75), vertexColors: true, roughness: 0.5, metalness: 0.22, emissive: 0x0c1216 });
   M.under = new THREE.MeshLambertMaterial({ map: T.grain, vertexColors: true, emissive: 0x080b0d });
   M.extDecal = new THREE.MeshLambertMaterial({ map: T.extAtlas.tex, transparent: true, depthWrite: false, emissive: 0x0a0e10, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   M.glass = new THREE.MeshBasicMaterial({ map: T.glass, transparent: true, depthWrite: false, side: THREE.DoubleSide });
-  M.sign = new THREE.MeshBasicMaterial({ map: T.signFront.tex, color: 0xffffff });
-  M.led = new THREE.MeshBasicMaterial({ map: T.signDoor.tex, color: 0xffffff });
-  M.lampHead = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.85, 2.5) });
-  M.lampTail = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.12, 0.08) });
-  M.lampMark = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.7, 0.2) });
-  M.lampDoor = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.05, 0.03, 0.01) });
+  M.sign = po(new THREE.MeshBasicMaterial({ map: T.signFront.tex, color: 0xffffff }));
+  M.led = po(new THREE.MeshBasicMaterial({ map: T.signDoor.tex, color: 0xffffff }));
+  M.lampHead = po(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.85, 2.5) }));
+  M.lampTail = po(new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.12, 0.08) }));
+  M.lampMark = po(new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.7, 0.2) }));
+  M.lampDoor = po(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.05, 0.03, 0.01) }));
   M.int = []; M.intDec = []; M.strip = [];
   for (let i = 0; i < K.CAR_COUNT; i++) {
     M.int.push(new THREE.MeshBasicMaterial({ map: T.grain, vertexColors: true }));
     M.intDec.push(new THREE.MeshBasicMaterial({ map: T.intAtlas.tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    M.strip.push(new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(2.2, 2.2, 2.2) }));
+    M.strip.push(po(new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(2.2, 2.2, 2.2) })));
   }
 
   const root = new THREE.Group(); root.name = 'train';

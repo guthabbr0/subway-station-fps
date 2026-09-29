@@ -31,18 +31,18 @@ void main() {
   } else if (mode < 1.5) {
     float sp = length(iDir); vec3 d = iDir / max(sp, 1e-4);
     float len = iParams.x + sp * iPosRot.w;
-    vec3 toCam = normalize(cameraPosition - c); vec3 side = cross(d, toCam); float sl = length(side);
+    vec3 tc = cameraPosition - c; vec3 toCam = tc / max(length(tc), 1e-4); vec3 side = cross(d, toCam); float sl = length(side);
     side = sl > 1e-4 ? side / sl : vec3(0.0, 1.0, 0.0);
     wp = c + d * (uvl.x - 0.8) * len + side * q.y * iParams.y;
   } else {
-    vec3 n = normalize(iDir); vec3 t = normalize(cross(abs(n.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0), n)); vec3 b = cross(n, t);
+    vec3 n = iDir / max(length(iDir), 1e-4); vec3 t0 = cross(abs(n.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0), n); vec3 t = t0 / max(length(t0), 1e-4); vec3 b = cross(n, t);
     float cs = cos(iPosRot.w), sn = sin(iPosRot.w);
     vec2 r = vec2(cs * q.x - sn * q.y, sn * q.x + cs * q.y) * iParams.xy;
     wp = c + t * r.x + b * r.y;
   }
   vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  float f = iParams.z; vec2 tile = vec2(mod(f, 4.0), floor(f / 4.0));
+  float f = floor(iParams.z + 0.5); vec2 tile = vec2(mod(f, 4.0), floor(f / 4.0));
   vUv = (tile + uvl) * 0.25; vColor = iColor;
   vNear = mode < 0.5 ? smoothstep(0.15, 0.5 + 0.3 * max(iParams.x, iParams.y), -mvPosition.z) : 1.0;
   #include <fog_vertex>
@@ -54,7 +54,7 @@ uniform sampler2D uMap; varying vec2 vUv; varying vec4 vColor; varying float vNe
 void main() {
   vec4 t = texture2D(uMap, vUv); float a = t.a * vColor.a * vNear;
   #ifdef ADDITIVE
-    vec3 col = vColor.rgb * t.rgb * a;
+    vec3 col = min(max(vec3(0.0), vColor.rgb * t.rgb * a), vec3(1024.0)); // (NaN-tolerant order: max(0, NaN) = 0; the HDR targets are half float)
     #ifdef USE_FOG
       #ifdef FOG_EXP2
         float fogF = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
@@ -65,7 +65,7 @@ void main() {
     #endif
     gl_FragColor = vec4(col, 1.0);
   #else
-    gl_FragColor = vec4(vColor.rgb * t.rgb, a);
+    gl_FragColor = vec4(min(max(vec3(0.0), vColor.rgb * t.rgb), vec3(1024.0)), clamp(a, 0.0, 1.0));
     #include <fog_fragment>
   #endif
 }`;
@@ -104,7 +104,10 @@ export class BillboardBatch {
 
   emit() {
     if (this.n >= this.cap) return false;
-    const p = this.p, d = this.d, o = this.n++ * ST;
+    const p = this.p;
+    // a non-finite / zero-life particle would put NaN into the instance buffers (garbage triangles on real GPUs); callers pass positions from enemies / projectiles / weapons
+    if (!(p.life > 0) || !Number.isFinite(p.x + p.y + p.z + p.vx + p.vy + p.vz + p.s0 + p.s1 + p.dx + p.dy + p.dz + p.delay)) return false;
+    const d = this.d, o = this.n++ * ST;
     d[o + PX] = p.x; d[o + PY] = p.y; d[o + PZ] = p.z; d[o + VX] = p.vx; d[o + VY] = p.vy; d[o + VZ] = p.vz;
     d[o + AGE] = -p.delay; d[o + LIFE] = p.life; d[o + GRAV] = p.grav; d[o + DRAG] = p.drag;
     d[o + SX0] = p.s0; d[o + SY0] = p.sy0 || p.s0; d[o + SX1] = p.s1; d[o + SY1] = p.sy1 || p.s1; d[o + ROT] = p.rot; d[o + ROTV] = p.rotV;
@@ -134,6 +137,7 @@ export class BillboardBatch {
       if (drag > 0) { const k = 1 / (1 + drag * dt); vx *= k; vy *= k; vz *= k; }
       vy -= d[o + GRAV] * dt;
       let x = d[o + PX] + vx * dt, y = d[o + PY] + vy * dt, z = d[o + PZ] + vz * dt;
+      if (!Number.isFinite(x + y + z)) { n--; if (i !== n) d.copyWithin(o, n * ST, n * ST + ST); continue; }
       const fl = d[o + FLAGS] | 0;
       if (fl & 15) {
         const fy = floorY(x, z);

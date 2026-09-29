@@ -284,6 +284,7 @@ export class LCD {
   constructor(w, h, draw) {
     this.w = w; this.h = h; this.canvas = document.createElement('canvas'); this.canvas.width = w; this.canvas.height = h;
     this.ctx = this.canvas.getContext('2d'); this.tex = new THREE.CanvasTexture(this.canvas); this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.anisotropy = 4;
+    this.ctx.fillStyle = '#0b1f14'; this.ctx.fillRect(0, 0, w, h); // never sample a transparent-black canvas through an opaque material (would render as a black rectangle until the first set())
     this.mat = new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false }); this.draw = draw; this.last = null;
   }
   set(key, ...args) { if (key === this.last) return; this.last = key; this.draw(this.ctx, this.w, this.h, key, ...args); this.tex.needsUpdate = true; }

@@ -36,7 +36,7 @@ function neon(c, L) {
     const mat = new THREE.MeshBasicMaterial({ map: tex, fog: true, color: new THREE.Color(1.5, 1.5, 1.5), polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     const m = new MB(1); m.oq(d.x, d.y, d.z + d.nz * 0.053, 0, 0, d.nz, d.w, d.h, [0, 0, 1, 1], { c: W3 });
     c.mb('dark').box(d.x - d.w / 2 - 0.04, d.y - d.h / 2 - 0.04, d.nz > 0 ? d.z : d.z - 0.05, d.x + d.w / 2 + 0.04, d.y + d.h / 2 + 0.04, d.nz > 0 ? d.z + 0.05 : d.z, { c: [0.1, 0.1, 0.12] });
-    const geo = m.build(); const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; c.add(mesh);
+    const geo = m.build(); const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.userData.layer = 'signs'; c.add(mesh);
     // wall spill glow (additive)
     const spill = new THREE.Mesh(new THREE.PlaneGeometry(d.w * 2.6, d.h * 3.2), new THREE.MeshBasicMaterial({ map: radialTex(64, [[0, 'rgba(255,255,255,0.55)'], [0.5, 'rgba(255,255,255,0.15)'], [1, 'rgba(255,255,255,0)']]), color: new THREE.Color(...d.tint).multiplyScalar(0.55), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
     spill.position.set(d.x, d.y, d.z + d.nz * 0.04); spill.rotation.y = d.nz > 0 ? 0 : Math.PI; spill.renderOrder = 2; c.add(spill);

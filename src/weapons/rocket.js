@@ -52,7 +52,9 @@ function getRocketMesh() { const m = freeMeshes.pop() || RK.clone(); m.userData.
 export default class RocketLauncher extends Weapon {
   constructor(game) {
     super(game, { id: 'rocket', name: 'ROCKET LAUNCHER', slot: 5, ammoType: 'rockets', ammoPerShot: 1, raiseTime: 0.4, lowerTime: 0.28 });
-    this.rest.set(0.115, -0.135, -0.72); this.viewYaw = 0.20; this.viewPitch = 0.05;
+    this.rest.set(0.115, -0.135, -0.72);
+    // ADS: peep ring at the rear of the rail (z 0.03) -> front ring with its yellow dot (z -0.4635)
+    this.adsSpec = { fov: 58, vfov: 60, depth: 0.45, rear: [0, 0.143, 0.03], front: [0, 0.128, -0.4635], spread: 1 };
     this.state = 'idle'; this.st = 99; this.emptyT = 0; this.rocketOn = true; this.smokeT = 0; this.smokeLeft = 0; this.ammoShown = -1; this.trigT = 9; this.trig = 0; this.heatV = 0; this._dbg = null;
     if (!hooked) { hooked = true; bus.on('game:start', () => { for (const l of activeLoops) l.stop(0.02); activeLoops.clear(); }); }
     const G = game;

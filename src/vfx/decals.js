@@ -9,16 +9,16 @@ varying vec2 vUv; varying vec4 vTint;
 void main() {
   float T = uTime - dTime.y;
   if (dTime.z <= 0.0 || T < 0.0 || T > dTime.z) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vUv = vec2(0.0); vTint = vec4(0.0); return; }
-  float fade = 1.0 - smoothstep(dTime.z - dTime.w, dTime.z, T);
+  float fade = 1.0 - smoothstep(dTime.z - max(dTime.w, 1e-3), dTime.z, T);
   float sz = dNrm.w * (0.25 + 0.75 * smoothstep(0.0, 0.18, T));
-  vec3 n = normalize(dNrm.xyz);
-  vec3 t = normalize(cross(abs(n.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0), n)); vec3 b = cross(n, t);
+  vec3 n = dNrm.xyz / max(length(dNrm.xyz), 1e-4);
+  vec3 t0 = cross(abs(n.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0), n); vec3 t = t0 / max(length(t0), 1e-4); vec3 b = cross(n, t);
   float cs = cos(dPos.w), sn = sin(dPos.w);
   vec2 q = position.xy; vec2 r = vec2(cs * q.x - sn * q.y, sn * q.x + cs * q.y) * sz;
   vec3 wp = dPos.xyz + n * 0.006 + t * r.x + b * r.y;
   vec4 mvPosition = viewMatrix * vec4(wp, 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  float f = dTime.x; vec2 tile = vec2(mod(f, 4.0), floor(f / 4.0));
+  float f = floor(dTime.x + 0.5); vec2 tile = vec2(mod(f, 4.0), floor(f / 4.0));
   vUv = (tile + q + 0.5) * 0.25; vTint = vec4(dTint.rgb, dTint.a * fade);
   #include <fog_vertex>
 }`;
@@ -27,7 +27,7 @@ uniform sampler2D uMap; varying vec2 vUv; varying vec4 vTint;
 #include <fog_pars_fragment>
 void main() {
   vec4 t = texture2D(uMap, vUv);
-  gl_FragColor = vec4(vTint.rgb * t.rgb, t.a * vTint.a);
+  gl_FragColor = vec4(min(max(vec3(0.0), vTint.rgb * t.rgb), vec3(1024.0)), clamp(t.a * vTint.a, 0.0, 1.0));
   #include <fog_fragment>
 }`;
 
@@ -53,6 +53,10 @@ export class DecalBatch {
   }
 
   add(ring, now, px, py, pz, nx, ny, nz, size, frame, r, g, b, a, life, fade, rot) {
+    // callers pass hit normals / positions from raycasts and weapons: a zero-length normal or a non-finite value would become NaN vertex positions (garbage geometry on real GPUs)
+    if (!Number.isFinite(px + py + pz + size + r + g + b + a + life + fade + rot)) return;
+    const nl = nx * nx + ny * ny + nz * nz;
+    if (nl > 1e-8 && Number.isFinite(nl)) { const il = 1 / Math.sqrt(nl); nx *= il; ny *= il; nz *= il; } else { nx = 0; ny = 1; nz = 0; }
     const lo = this.ranges[ring][0], n = this.sizes[ring], i = lo + this.next[ring]; this.next[ring] = (this.next[ring] + 1) % n;
     const k = i * 4;
     this.aPos.array[k] = px; this.aPos.array[k + 1] = py; this.aPos.array[k + 2] = pz; this.aPos.array[k + 3] = rot;

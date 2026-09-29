@@ -13,7 +13,7 @@ const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _v = new THREE.Vector3
 const FWD = new THREE.Vector3(0, 0, -1);
 const AY = 0.02;                                   // barrel axis height
 const COIL_Z = [-0.235, -0.290, -0.345, -0.400, -0.455, -0.510], COIL_R = [0.046, 0.044, 0.042, 0.040, 0.038, 0.036], NCOIL = 6;
-const NCELL = 6, CELL_Z0 = 0.0, CELL_DZ = 0.022, CY = 0.116;
+const NCELL = 6, CELL_Z0 = 0.0, CELL_DZ = 0.022, CY = 0.116, SIGHT_Y = 0.20;
 const COOL = new THREE.Color(0.10, 0.42, 1.25), HOT = new THREE.Color(1.8, 0.7, 0.18);
 const _dummy = new THREE.Object3D();
 
@@ -39,7 +39,9 @@ function getBolt() { const m = freeBolts.pop() || BOLT.clone(); m.userData.halo 
 export default class PlasmaRifle extends Weapon {
   constructor(game) {
     super(game, { id: 'plasma', name: 'PLASMA RIFLE', slot: 6, ammoType: 'cells', ammoPerShot: 1, raiseTime: 0.34, lowerTime: 0.24 });
-    this.rest.set(0.13, -0.135, -0.72); this.viewYaw = 0.32; this.viewPitch = 0.05;
+    this.rest.set(0.13, -0.135, -0.72);
+    // ADS: through the reflex sight window, dot collimated parallel to the barrel
+    this.adsSpec = { fov: 60, vfov: 60, depth: 0.55, rear: [0, 0.202, -0.118], front: [0, 0.202, -0.60], spread: 1 };
     this.chain = false; this.nextShot = 0; this.emptyT = 0; this.heat = 0; this.pulse = 0; this.pulseT = 0; this.steamT = 0; this.cooling = 0; this.ammoShown = -1; this.shots = 0; this.trig = 0; this.trigT = 9; this.arcT = 0; this._dbg = null;
     const G = game;
     this.cbHit = (p, hit) => {
@@ -100,11 +102,12 @@ export default class PlasmaRifle extends Weapon {
     B.cyl(M.dark, 0.0285, 0.0285, 0.010, 'z', [0, CY, -0.040], null, 20); B.cyl(M.dark, 0.0285, 0.0285, 0.010, 'z', [0, CY, 0.130], null, 20); B.torus(M.steel, 0.0285, 0.0022, [0, CY, 0.1355], null, 20);
     B.cyl(M.steel, 0.0040, 0.0040, 0.16, 'z', [0, CY, 0.045], null, 8);
     B.torus(M.dark, 0.0265, 0.003, [0, CY, 0.045], null, 24); B.box(H.cyanVC, [0.006, 0.0022, 0.03], [0, CY + 0.0292, 0.045], null, 0);
-    // reflex sight
-    B.box(M.dark, [0.030, 0.008, 0.052], [0, 0.099, -0.105], null, 0.002);
-    for (const sx of [-1, 1]) B.box(M.dark, [0.004, 0.030, 0.040], [sx * 0.0135, 0.118, -0.105], null, 0.002);
-    B.box(M.dark, [0.030, 0.005, 0.044], [0, 0.135, -0.105], null, 0.002);
-    B.cyl(M.dark, 0.0175, 0.0175, 0.006, 'z', [0, 0.118, -0.129], null, 16);
+    // reflex sight: raised on a pedestal so its window (y = SIGHT_Y) clears the cell canister behind it: this is the ADS sight line (the eye looks through the window at the dot)
+    B.box(M.dark, [0.018, 0.048, 0.040], [0, 0.0945 + 0.024, -0.105], null, 0.003);                       // pedestal on the top rail
+    B.box(M.dark, [0.030, 0.008, 0.052], [0, SIGHT_Y - 0.019, -0.105], null, 0.002);
+    for (const sx of [-1, 1]) B.box(M.dark, [0.004, 0.030, 0.040], [sx * 0.0135, SIGHT_Y, -0.105], null, 0.002);
+    B.box(M.dark, [0.030, 0.005, 0.044], [0, SIGHT_Y + 0.017, -0.105], null, 0.002);
+    B.torus(M.dark, 0.0165, 0.0024, [0, SIGHT_Y, -0.1295], null, 20);                                     // lens frame (open window: the glass plane below is translucent)
 
     // ================================================================ grips ==================================================================
     F.box(pd, [0.048, 0.024, 0.110], [0, -0.058, 0.070], null, 0.005);                           // trigger housing
@@ -149,8 +152,8 @@ export default class PlasmaRifle extends Weapon {
     this.tipMat = K.glowBasic(1.0, 2.0, 3.0);
     this.tip = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 12, 8), this.tipMat); this.tip.position.set(0, AY, -0.598); this.tip.frustumCulled = false; G.add(this.tip);
     this.tipGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: K.glowTexture(), color: new THREE.Color(0.3, 0.9, 2.6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false, opacity: 0.7, depthTest: false })); this.tipGlow.position.copy(this.tip.position); this.tipGlow.scale.setScalar(0.08); this.tipGlow.renderOrder = 5; this.tipGlow.frustumCulled = false; G.add(this.tipGlow);
-    this.dotMat = K.glowBasic(0.3, 2.0, 2.6); const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 6, 5), this.dotMat); dot.position.set(0, 0.120, -0.118); dot.frustumCulled = false; G.add(dot);
-    const rgl = new THREE.Mesh(new THREE.PlaneGeometry(0.024, 0.024), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.08, 0.3, 0.42), transparent: true, opacity: 0.28, depthWrite: false, toneMapped: false })); rgl.position.set(0, 0.119, -0.1245); rgl.rotation.x = 0.0; rgl.frustumCulled = false; rgl.renderOrder = 4; G.add(rgl);
+    this.dotMat = K.glowBasic(0.3, 2.0, 2.6); const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 6, 5), this.dotMat); dot.position.set(0, SIGHT_Y + 0.002, -0.118); dot.frustumCulled = false; G.add(dot);
+    const rgl = new THREE.Mesh(new THREE.PlaneGeometry(0.024, 0.024), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.08, 0.3, 0.42), transparent: true, opacity: 0.28, depthWrite: false, toneMapped: false })); rgl.position.set(0, SIGHT_Y + 0.001, -0.1245); rgl.rotation.x = 0.0; rgl.frustumCulled = false; rgl.renderOrder = 4; G.add(rgl);
     // arcs between the coil rings
     this.arcs = new K.Arcs(G, 5, 4, K.additiveMat(K.beamTexture(), 0.5, 1.5, 3.4, { side: THREE.DoubleSide }));
 

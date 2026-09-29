@@ -433,7 +433,7 @@ export function createMaterials(P, renderer, maxAniso = 8) {
   M.floor = std(P.floor, { env: 1.1, ns: 1.0 });
   M.tileCream = std(P.tileCream, { env: 0.9, ns: 1.0 });
   M.tileGreen = std(P.tileGreen, { env: 1.0, ns: 1.0 });
-  M.tileDark = std(P.tileGreen, { env: 0.9, ns: 1.0, color: 0x6c7078 });
+  M.tileDark = std(P.tileGreen, { env: 0.9, ns: 1.0, color: 0x6c7078 }); // (no longer used by the station: its plinths / skirting were pure black boxes, they use 'concrete' now)
   M.concrete = std(P.concrete, { env: 0.45, ns: 1.0 });
   M.paint = std(P.paintGreen, { env: 0.8, metal: true, ns: 0.7 });
   M.steel = std(P.steel, { env: 1.0, metal: true, ns: 0.6 });
@@ -446,11 +446,12 @@ export function createMaterials(P, renderer, maxAniso = 8) {
   M.shutter = std(P.shutter, { env: 0.9, metal: true, ns: 1.0 });
   M.wood = std(P.wood, { env: 0.3, ns: 1.0 });
   M.rubber = std(P.rubber, { env: 0.3, ns: 1.0 });
-  M.plastic = new THREE.MeshStandardMaterial({ color: 0x2b2f33, roughness: 0.55, metalness: 0.1, vertexColors: true, envMapIntensity: 0.6 });
+  // (base colour white: every user of this material passes its albedo as VERTEX colours (red / teal suitcases, coloured litter, dark bags), a dark base colour multiplied on top rendered all of them as pure black boxes)
+  M.plastic = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.1, vertexColors: true, envMapIntensity: 0.6 });
   M.dark = new THREE.MeshStandardMaterial({ color: 0x101214, roughness: 0.8, metalness: 0.2, vertexColors: true, envMapIntensity: 0.4 });
   M.brass = new THREE.MeshStandardMaterial({ color: 0xb08a3c, roughness: 0.35, metalness: 1.0, vertexColors: true, envMapIntensity: 1.2 });
   M.chrome = new THREE.MeshStandardMaterial({ color: 0xc8ccd2, roughness: 0.22, metalness: 1.0, vertexColors: true, envMapIntensity: 1.4 });
   M.glass = new THREE.MeshStandardMaterial({ color: 0x8fb0bd, roughness: 0.08, metalness: 0.0, transparent: true, opacity: 0.22, vertexColors: true, envMapIntensity: 1.6, depthWrite: false });
-  M.cable = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.6, metalness: 0.2, vertexColors: true, envMapIntensity: 0.5 });
+  M.cable = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.2, vertexColors: true, envMapIntensity: 0.5 }); // (white base: the red / blue / yellow cables are vertex colours, a dark base made them black)
   return M;
 }

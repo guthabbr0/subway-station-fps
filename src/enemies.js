@@ -44,12 +44,12 @@ export function create(game) {
     ringTex = makeBlobTexture('ring'); spitTex = makeBlobTexture('glow');
     const sh = shared();
     shadowInst = new THREE.InstancedMesh(sh.plane, sh.shadowMat, SLOTS); poolInst = new THREE.InstancedMesh(sh.plane, sh.poolMat, SLOTS);
-    for (const im of [shadowInst, poolInst]) { im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; game.scene.add(im); }
+    for (const im of [shadowInst, poolInst]) { im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.userData.layer = 'enemies'; game.scene.add(im); }
     shadowInst.renderOrder = 1; poolInst.renderOrder = 2;
     for (let i = SLOTS - 1; i >= 0; i--) { freeSlots.push(i); shadowInst.setMatrixAt(i, _zero); poolInst.setMatrixAt(i, _zero); }
     for (let i = 0; i < 3; i++) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffb060, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false }));
-      m.visible = false; m.position.y = 0.06; m.frustumCulled = false; game.scene.add(m); rings.push({ mesh: m, t: 0, dur: 0.5, r: 8, on: false });
+      m.visible = false; m.position.y = 0.06; m.frustumCulled = false; m.userData.layer = 'enemies'; game.scene.add(m); rings.push({ mesh: m, t: 0, dur: 0.5, r: 8, on: false });
     }
     try { // upload every head / forearm variant geometry now (they were uploaded lazily on first use: a variable amount of GPU-side work in the middle of a wave)
       const r = game.renderer, tmp = new THREE.Scene(), mat = new THREE.MeshBasicMaterial(), rt = new THREE.WebGLRenderTarget(4, 4);

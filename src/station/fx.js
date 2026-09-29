@@ -39,11 +39,11 @@ export function buildFX(c) {
       }`,
     fragmentShader: `uniform vec3 uColor; varying float vA;
       #include <fog_pars_fragment>
-      void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.05, d) * vA * 0.75;
+      void main(){ float d = length(gl_PointCoord - 0.5); float a = (1.0 - smoothstep(0.05, 0.5, d)) * vA * 0.75;
         #ifdef USE_FOG
           a *= exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
         #endif
-        gl_FragColor = vec4(uColor, a); }`,
+        gl_FragColor = vec4(uColor, clamp(a, 0.0, 1.0)); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true,
   });
   const dust = new THREE.Points(dg, dm); dust.frustumCulled = false; dust.renderOrder = 4; c.add(dust);
@@ -68,13 +68,13 @@ export function buildFX(c) {
     vertexShader: `attribute vec4 aD; attribute vec4 aQ; attribute vec4 aR; uniform float uTime; uniform float uScale; uniform float uGust; uniform float uWindDir; varying float vA; varying float vRot;
       #include <fog_pars_vertex>
       void main(){ float life = aD.w; float age = fract(uTime/life*(0.7+aR.y*0.6) + aR.x); float h = aQ.y;
-        vec3 p = position + aD.xyz * h * (1.0 - pow(1.0-age, 1.6));
+        vec3 p = position + aD.xyz * h * (1.0 - pow(clamp(1.0-age, 0.0, 1.0), 1.6));
         p.x += sin(age*5.0 + aR.y*30.0) * aQ.x * age * 1.4 + uGust*uWindDir*age*age*3.5;
         p.z += cos(age*4.2 + aR.z*30.0) * aQ.x * age * 1.4;
         vec4 mvPosition = modelViewMatrix * vec4(p,1.0); gl_Position = projectionMatrix * mvPosition;
         float size = aQ.z * (0.3 + age*1.9) * (0.8 + aR.w*0.5);
         gl_PointSize = clamp(size * uScale / -mvPosition.z, 1.0, 260.0);
-        vA = smoothstep(0.0,0.1,age) * pow(1.0-age, 1.4) * 0.22; vRot = aR.z * 6.283;
+        vA = smoothstep(0.0,0.1,age) * pow(clamp(1.0-age, 0.0, 1.0), 1.4) * 0.22; vRot = aR.z * 6.283;
         #include <fog_vertex>
       }`,
     fragmentShader: `uniform sampler2D uMap; uniform vec3 uColor; varying float vA; varying float vRot;
@@ -84,7 +84,7 @@ export function buildFX(c) {
         #ifdef USE_FOG
           a *= exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
         #endif
-        gl_FragColor = vec4(uColor, a); }`,
+        gl_FragColor = vec4(uColor, clamp(a, 0.0, 1.0)); }`,
     transparent: true, depthWrite: false, fog: true,
   });
   const steam = new THREE.Points(sg, sm); steam.frustumCulled = false; steam.renderOrder = 5; c.add(steam);

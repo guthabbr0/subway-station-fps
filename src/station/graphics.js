@@ -18,7 +18,29 @@ export class Atlas {
     const S = this.size; this.rects[name] = [(this.x + 0.5) / S, 1 - (this.y + h - 0.5) / S, (this.x + w - 0.5) / S, 1 - (this.y + 0.5) / S, w / h];
     this.x += w + this.g; this.rowH = Math.max(this.rowH, h);
   }
-  texture(aniso = 8) { const t = new THREE.CanvasTexture(this.c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; }
+  // Gutter fill: the canvas starts transparent BLACK, so at distance (mip levels >= 1) every artwork rect averaged in its black gutter and drew a dark rectangular frame around the sign / ad /
+  // poster (opaque materials ignore alpha: a black frame; alpha-blended decals: a darker fringe). Replicate each rect's outermost texel row / column into half of the gutter (the other half
+  // belongs to the neighbouring rect) so filtering at the edge sees the artwork's own edge colour instead of black.
+  extrude() {
+    if (this._extruded) return; this._extruded = true;
+    const c = this.c, ctx = this.ctx, S = this.size, sc = c.width / S, G = Math.max(1, Math.floor(this.g * sc / 2));
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.imageSmoothingEnabled = false;
+    for (const r of Object.values(this.rects)) {
+      const x0 = Math.round((r[0] * S - 0.5) * sc), x1 = Math.round((r[2] * S + 0.5) * sc), y0 = Math.round(((1 - r[3]) * S - 0.5) * sc), y1 = Math.round(((1 - r[1]) * S + 0.5) * sc), w = x1 - x0, h = y1 - y0;
+      if (w < 2 || h < 2) continue;
+      const l = Math.min(G, x0), t = Math.min(G, y0), rr = Math.min(G, c.width - x1), b = Math.min(G, c.height - y1);
+      if (t > 0) ctx.drawImage(c, x0, y0, w, 1, x0, y0 - t, w, t);
+      if (b > 0) ctx.drawImage(c, x0, y1 - 1, w, 1, x0, y1, w, b);
+      if (l > 0) ctx.drawImage(c, x0, y0, 1, h, x0 - l, y0, l, h);
+      if (rr > 0) ctx.drawImage(c, x1 - 1, y0, 1, h, x1, y0, rr, h);
+      if (l > 0 && t > 0) ctx.drawImage(c, x0, y0, 1, 1, x0 - l, y0 - t, l, t);
+      if (rr > 0 && t > 0) ctx.drawImage(c, x1 - 1, y0, 1, 1, x1, y0 - t, rr, t);
+      if (l > 0 && b > 0) ctx.drawImage(c, x0, y1 - 1, 1, 1, x0 - l, y1, l, b);
+      if (rr > 0 && b > 0) ctx.drawImage(c, x1 - 1, y1 - 1, 1, 1, x1, y1, rr, b);
+    }
+    ctx.restore();
+  }
+  texture(aniso = 8) { this.extrude(); const t = new THREE.CanvasTexture(this.c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; }
 }
 
 // ------------------------------------------------------------------------------------------------ text helpers
@@ -160,7 +182,8 @@ function plateName(ctx, w, h) {
   const rx = 62; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(rx, h / 2, 34, 0, 6.28); ctx.fill(); ctx.fillStyle = '#d0281e'; ctx.beginPath(); ctx.arc(rx, h / 2, 26, 0, 6.28); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(rx, h / 2, 17, 0, 6.28); ctx.fill(); ctx.fillStyle = '#1a3d8a'; ctx.fillRect(rx - 56, h / 2 - 8, 112, 16);
   text(ctx, 'STATION ZERO', w / 2 + 44, h / 2 + 2, 54, '#f3efe2', { ls: 10, maxW: w - 190 }); ctx.fillStyle = '#f3efe2'; ctx.fillRect(w - 18, 14, 3, h - 28);
 }
-function plateRoundel(ctx, w, h) { ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.clearRect(0, 0, w, h); const cx = w / 2, cy = h / 2; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.44, 0, 6.28); ctx.fill(); ctx.fillStyle = '#d0281e'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.36, 0, 6.28); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.23, 0, 6.28); ctx.fill(); ctx.fillStyle = '#1a3d8a'; ctx.fillRect(cx - w * 0.5, cy - h * 0.09, w, h * 0.18); text(ctx, 'ZERO', cx, cy, w * 0.14, '#fff', { ls: 2 }); }
+// (glowA is an OPAQUE material: transparent texels would render as a black square, so the roundel sits on a solid enamel plate like the name plates)
+function plateRoundel(ctx, w, h) { ctx.fillStyle = '#0f4f3a'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#c9a75a'; ctx.fillRect(0, 3, w, 2); ctx.fillRect(0, h - 5, w, 2); const cx = w / 2, cy = h / 2; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.44, 0, 6.28); ctx.fill(); ctx.fillStyle = '#d0281e'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.36, 0, 6.28); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, w * 0.23, 0, 6.28); ctx.fill(); ctx.fillStyle = '#1a3d8a'; ctx.fillRect(cx - w * 0.5, cy - h * 0.09, w, h * 0.18); text(ctx, 'ZERO', cx, cy, w * 0.14, '#fff', { ls: 2 }); }
 function exitSign(ctx, w, h, label = 'EXIT') { ctx.fillStyle = '#0a8a4a'; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3; ctx.strokeRect(5, 5, w - 10, h - 10); runningMan(ctx, 40, h / 2 + 2, h * 0.72, '#fff'); text(ctx, label, w * 0.62, h / 2 + 2, h * 0.34, '#fff', { ls: 2, maxW: w * 0.6 }); arrow(ctx, w - 22, h / 2, 12, 0, '#fff'); }
 function fireSign(ctx, w, h) { ctx.fillStyle = '#c8201a'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(w / 2 - 12, 32, 24, 60, 6); ctx.fill(); ctx.fillRect(w / 2 - 6, 22, 12, 12); ctx.fillRect(w / 2 + 4, 24, 16, 5); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(w / 2 + 6, 30); ctx.quadraticCurveTo(w / 2 + 34, 40, w / 2 + 30, 78); ctx.stroke(); text(ctx, 'FIRE', w / 2, 106, 15, '#fff', { ls: 2 }); }
 function sosSign(ctx, w, h) { ctx.fillStyle = '#1359b3'; ctx.fillRect(0, 0, w, h); text(ctx, 'SOS', w / 2, h * 0.42, h * 0.36, '#fff', { ls: 4 }); text(ctx, 'HELP POINT', w / 2, h * 0.78, h * 0.13, '#fff', { ls: 2 }); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeRect(5, 5, w - 10, h - 10); }

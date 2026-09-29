@@ -23,7 +23,7 @@ function west(c) {
     rub.grid(xa, top + 0.002, -ZW, TREAD, 0, 0, 0, 0, 2 * ZW, 1, 4, 0, 1, 0, { c: [0.85, 0.85, 0.9], f: (x, y, z) => 0.55 + 0.6 * fbm3(x * 4, i, z * 2), uv: (x, y, z) => [x / 0.5, z / 0.5] });
     yel.box(xb - 0.055, top - 0.002, -ZW, xb, top + 0.01, ZW, { c: [1, 0.95, 0.9], f: (x, y, z) => 0.6 + 0.4 * fbm3(z * 3, i, 1), seg: 2 });
     // dark shadowed riser lip
-    c.mb('dark').grid(xb, top - RISE, -ZW, 0, RISE, 0, 0, 0, 2 * ZW, 1, 1, 1, 0, 0, { c: [0.35, 0.35, 0.36] });
+    c.mb('dark').grid(xb + 0.010, top - RISE, -ZW, 0, RISE, 0, 0, 0, 2 * ZW, 1, 1, 1, 0, 0, { c: [0.35, 0.35, 0.36] }); // (+10 mm: it was EXACTLY on the concrete riser = z-fighting black / grey on every stair riser)
   }
   // top landing
   conc.box(-32, 0, -ZW, X0 - NST * TREAD, TOP, ZW, { c: [0.7, 0.75, 0.8], skip: 'py' });
@@ -54,7 +54,7 @@ function west(c) {
   c.mb('dark').box(dx - 0.5, TOP, -ZW, dx + 0.02, 6.2, ZW, { c: [0.02, 0.02, 0.025], skip: 'nx' });
   c.mb('paint').box(dx, TOP, -ZW - 0.16, dx + 0.18, 6.35, -ZW, { c: [0.75, 0.8, 0.8], seg: 2 }); c.mb('paint').box(dx, TOP, ZW, dx + 0.18, 6.35, ZW + 0.16, { c: [0.75, 0.8, 0.8], seg: 2 }); c.mb('paint').box(dx, 6.2, -ZW - 0.16, dx + 0.18, 6.4, ZW + 0.16, { c: [0.75, 0.8, 0.8], seg: 2 });
   // roller housing
-  c.mb('steel').cyl(dx + 0.3, 6.05, -ZW - 0.1, dx + 0.3, 6.05, ZW + 0.1, 0.17, { segs: 12, c: [0.6, 0.6, 0.62] }); c.mb('steel').box(dx + 0.14, 5.9, -ZW - 0.1, dx + 0.5, 6.35, ZW + 0.1, { c: [0.45, 0.47, 0.5], skip: 'nx' });
+  c.mb('steel').cyl(dx + 0.3, 6.05, -ZW - 0.1, dx + 0.3, 6.05, ZW + 0.1, 0.17, { segs: 12, c: [0.6, 0.6, 0.62] }); c.mb('steel').box(dx + 0.14, 5.892, -ZW - 0.1, dx + 0.5, 6.35, ZW + 0.1, { c: [0.45, 0.47, 0.5], skip: 'nx' }); // (5.892: its underside was exactly coplanar with the concrete bulkhead at 5.9)
   // shutter curtain (lowered to y=5.05) + bottom bar
   c.mb('shutter').box(dx + 0.19, 5.05, -ZW, dx + 0.23, 6.05, ZW, { c: [0.85, 0.85, 0.88], f: (x, y, z) => 0.55 + 0.6 * fbm3(z * 1.4, y * 1.2, 7) - 0.15 * (6.05 - y > 0.9 ? 0.5 : 0), seg: 1.5 });
   c.mb('steel').box(dx + 0.17, 4.98, -ZW - 0.05, dx + 0.26, 5.07, ZW + 0.05, { c: [0.35, 0.35, 0.38] });
@@ -117,7 +117,7 @@ export function ticketMachine(c, x, z, dir, screen) {
   const hx = 0.22, hz = 0.3, fx = x + dir * hx; // front face at x + dir*hx
   c.mb('paint').box(x - hx, 0, z - hz, x + hx, 1.55, z + hz, { c: [0.75, 0.85, 0.9], seg: 1.2 });
   c.mb('steel').box(x - hx - 0.02, 1.55, z - hz - 0.02, x + hx + 0.02, 1.6, z + hz + 0.02, { c: [0.3, 0.32, 0.36] });
-  c.mb('tileDark').box(x - hx - 0.04, 0, z - hz - 0.04, x + hx + 0.04, 0.12, z + hz + 0.04, { c: [0.7, 0.7, 0.72] });
+  c.mb('concrete').box(x - hx - 0.04, 0, z - hz - 0.04, x + hx + 0.04, 0.12, z + hz + 0.04, { c: [0.7, 0.7, 0.72] });
   c.quadAt('glowB', screen, fx + dir * 0.003, 1.22, z, dir, 0, 0, 0.42, 0.42, { tint: 0.95 });
   c.mb('dark').box(fx - (dir < 0 ? 0.05 : 0), 0.85, z - 0.13, fx + (dir > 0 ? 0.05 : 0), 0.95, z + 0.13, { c: [0.02, 0.02, 0.02] }); // card slot
   c.mb('dark').box(fx - (dir < 0 ? 0.04 : 0), 0.62, z - 0.09, fx + (dir > 0 ? 0.04 : 0), 0.78, z + 0.09, { c: [0.03, 0.03, 0.03] });
@@ -176,12 +176,12 @@ function east(c) {
 // ---------------------------------------------------------------------------------------------------------- tunnel-mouth abutments
 function abutments(c) {
   for (const e of [1, -1]) for (const s of [1, -1]) {
-    const xa = e > 0 ? 30.8 : -32, xb = e > 0 ? 32 : -30.8, za = s > 0 ? 4.0 : -5.0, zb = s > 0 ? 5.0 : -4.0;
+    const xa = e > 0 ? 30.8 : -32, xb = e > 0 ? 32 : -30.8, za = s > 0 ? 4.0 : -4.99, zb = s > 0 ? 4.99 : -4.0; // (4.99 / -4.99: the pit-side face was exactly on the platform edge plane z = +-5 = z-fighting)
     c.mb('concrete').box(xa, -1.25, za, xb, 1.1, zb, { c: [0.65, 0.7, 0.75], seg: 1.2, skip: 'ny', f: grimeF({ floorY: -1.25, dirt: 0.5, seed: e * 3 + s, low: 0.3, hi: 0 }) });
-    const face = e > 0 ? xa : xb; // face towards the platform
-    c.mb('hazard').grid(face + (e > 0 ? -0.004 : 0.004), 0.75, za, 0, 0, zb - za, 0, 0.3, 0, 1, 1, -e, 0, 0, { c: W3, uv: (x, y, z) => [z / 0.5, y / 0.5] });
-    c.mb('hazard').grid(xa, 0.75, s > 0 ? zb + 0.004 : za - 0.004, xb - xa, 0, 0, 0, 0.3, 0, 1, 1, 0, 0, s, { c: W3, uv: (x, y, z) => [x / 0.5, y / 0.5] });
-    c.mb('hazard').grid(xa, 1.104, za, xb - xa, 0, 0, 0, 0, zb - za, 1, 1, 0, 1, 0, { c: W3 });
+    const face = e > 0 ? xa : xb; // face towards the platform (the hazard bands below sit 12 mm off the concrete: at 4 mm they z-fought from the far end of the platform, where one depth step is ~4 mm)
+    c.mb('hazard').grid(face + (e > 0 ? -0.012 : 0.012), 0.75, za, 0, 0, zb - za, 0, 0.3, 0, 1, 1, -e, 0, 0, { c: W3, uv: (x, y, z) => [z / 0.5, y / 0.5] });
+    c.mb('hazard').grid(xa, 0.75, s > 0 ? zb + 0.012 : za - 0.012, xb - xa, 0, 0, 0, 0.3, 0, 1, 1, 0, 0, s, { c: W3, uv: (x, y, z) => [x / 0.5, y / 0.5] });
+    c.mb('hazard').grid(xa, 1.112, za, xb - xa, 0, 0, 0, 0, zb - za, 1, 1, 0, 1, 0, { c: W3 });
     // chain posts
     const cx = (xa + xb) / 2;
     c.mb('yellow').cyl(face - e * 0.1, 1.1, (za + zb) / 2, face - e * 0.1, 1.4, (za + zb) / 2, 0.03, { segs: 6, c: W3 });

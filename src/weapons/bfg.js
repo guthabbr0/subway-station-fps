@@ -156,7 +156,9 @@ function bfgSpray(G, ballPos) {
 export default class BFG9000 extends Weapon {
   constructor(game) {
     super(game, { id: 'bfg', name: 'BFG 9000', slot: 7, ammoType: 'cells', ammoPerShot: 40, raiseTime: 0.46, lowerTime: 0.3 });
-    this.rest.set(0.13, -0.14, -0.74); this.viewYaw = 0.32; this.viewPitch = 0.05;
+    this.rest.set(0.13, -0.14, -0.74);
+    // ADS: the emitter is the sight: eye above the receiver, the cage / core sits on the crosshair
+    this.adsSpec = { fov: 62, vfov: 58, depth: 0.7, rear: [0, 0.16, 0.10], front: [0, 0.03, -0.55], spread: 1 };
     this.state = 'idle'; this.st = 99; this.charge = 0; this.flare = 0; this.chromaOn = false; this.emptyT = 0; this.steamT = 0; this.ammoKey = -1; this.trig = 0; this._dbg = null; this.vent = 0;
     const G = game;
     if (!hooked) { hooked = true; bus.on('game:start', () => { resetBalls(); const fx = G.__bfgFx; if (fx) { fx.glow = 0; fx.edge = 0; fx.edgeMesh.visible = false; for (const sh of fx.shocks) { sh.t = 9; sh.s.visible = false; sh.fl.visible = false; } } }); }

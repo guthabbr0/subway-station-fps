@@ -23,6 +23,7 @@ export class ChunkSystem {
 
   // Spawn one chunk. Returns false if the pool is full and the oldest could not be recycled.
   emit(x, y, z, vx, vy, vz, sx, sy, sz, wx, wy, wz, life, grav, bounce, rad, r, g, b, flags = 0) {
+    if (!Number.isFinite(x + y + z + vx + vy + vz + sx + sy + sz + wx + wy + wz + life + rad + r + g + b)) return false; // NaN would become a NaN instance matrix (garbage triangles on real GPUs)
     let i;
     if (this.n < this.cap) i = this.n++;
     else { i = this.next; this.next = (this.next + 1) % this.cap; } // recycle oldest slot
@@ -83,8 +84,8 @@ export class ChunkSystem {
           const hx = wx * dt * 0.5, hy = wy * dt * 0.5, hz = wz * dt * 0.5;
           const qx = d[o + QX], qy = d[o + QY], qz = d[o + QZ], qw = d[o + QW];
           let nx = qx + hx * qw + hy * qz - hz * qy, ny = qy + hy * qw + hz * qx - hx * qz, nz = qz + hz * qw + hx * qy - hy * qx, nw = qw - hx * qx - hy * qy - hz * qz;
-          const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz + nw * nw);
-          d[o + QX] = nx * il; d[o + QY] = ny * il; d[o + QZ] = nz * il; d[o + QW] = nw * il;
+          const l2 = nx * nx + ny * ny + nz * nz + nw * nw;
+          if (l2 > 1e-12) { const il = 1 / Math.sqrt(l2); d[o + QX] = nx * il; d[o + QY] = ny * il; d[o + QZ] = nz * il; d[o + QW] = nw * il; } else { d[o + QX] = 0; d[o + QY] = 0; d[o + QZ] = 0; d[o + QW] = 1; }
         }
         if ((fl & C_TRAIL) && this.onTrail) { const tt = d[o + TRAIL] + dt; if (tt > 0.05) { d[o + TRAIL] = 0; if (age < 1.1 && !(fl & C_LANDED)) this.onTrail(x, y, z, vx, vy, vz); } else d[o + TRAIL] = tt; }
       }

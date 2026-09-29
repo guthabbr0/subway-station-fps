@@ -370,7 +370,7 @@ export function create(game) {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.PointsMaterial({ size: 1.5, map: B.T.glow, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, sizeAttenuation: true });
-    const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = 9; pts.visible = false; game.scene.add(pts);
+    const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = 9; pts.visible = false; pts.userData.layer = 'train'; game.scene.add(pts);
     steam = { N, pos, col, geo, pts, vel: new Float32Array(N * 3), life: new Float32Array(N), max: new Float32Array(N), bright: new Float32Array(N), next: 0, active: 0 };
   }
   function emit(x, y, z, vx, vy, vz, life, bright) {

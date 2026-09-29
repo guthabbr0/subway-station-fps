@@ -14,7 +14,9 @@ const PUMP_TRAVEL = 0.088;
 export default class Shotgun extends Weapon {
   constructor(game) {
     super(game, { id: 'shotgun', name: 'SHOTGUN', slot: 3, ammoType: 'shells', ammoPerShot: 1, raiseTime: 0.36, lowerTime: 0.22 });
-    this.rest.set(0.20, -0.24, -0.55); this.viewYaw = 0.62; this.viewPitch = 0.08;
+    this.rest.set(0.12, -0.235, -0.55);
+    // ADS: the eye sits over the receiver, the brass bead at the muzzle end of the vent rib is the front sight
+    this.adsSpec = { fov: 62, vfov: 62, depth: 0.36, rear: [0, 0.13, 0.10], front: [0, 0.0672, -0.708], spread: 0.55 };
     this.t = 99; this.held = false; this._pf = false; this._edge = false; this._dbgT = null; this.pumpDone = true; this.ejected = true; this.pumpSnd = true; this.pump = 0;
   }
 
@@ -149,8 +151,9 @@ export default class Shotgun extends Weapon {
     this.trigger.rotation.x = -trig * 0.25; this.trigger.position.z = 0.024 + trig * 0.004;
     const idx = this.idxF; if (idx) { idx.joints[0].rotation.x = -(0.55 + trig * 0.22); idx.joints[1].rotation.x = -(0.65 + trig * 0.5); }
     const flip = keyframe(K_FLIP, tt, smooth);
-    this.gun.rotation.set(flip * 0.05 + Math.sin(pump * Math.PI) * 0.012, 0, 0);
-    this.gun.position.set(0, 0.004, -0.10 + flip * 0.02 + pump * 0.004);
+    const rk = this.recoilK; // x0.7 while aimed
+    this.gun.rotation.set(flip * 0.05 * rk + Math.sin(pump * Math.PI) * 0.012, 0, 0);
+    this.gun.position.set(0, 0.004, -0.10 + flip * 0.02 * rk + pump * 0.004);
     const vc = this.game.viewCamera; this.handR.pointArm(vc, 0.30, -0.80, 0.55); this.handL.pointArm(vc, -0.45, -0.80, 0.40);
     // breathing + raise tilt
     this.model.position.set(Math.sin(tm * 1.1) * 0.0009, Math.sin(tm * 1.6) * 0.0014, 0);

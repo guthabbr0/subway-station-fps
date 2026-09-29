@@ -61,7 +61,10 @@ export function create(game) {
   if (!document.getElementById('hud-style')) { const s = document.createElement('style'); s.id = 'hud-style'; s.textContent = CSS; document.head.appendChild(s); }
   let host = document.getElementById('hud');
   if (!host) { host = document.createElement('div'); host.id = 'hud'; host.style.cssText = 'position:fixed;inset:0;pointer-events:none'; document.body.appendChild(host); }
-  const root = document.createElement('div'); root.className = 'hx-root hidden'; root.innerHTML = TEMPLATE; host.appendChild(root);
+  // Debug switches for chasing GPU / compositor glitches (black boxes, flicker) that only show on real hardware: ?hud=0 removes the whole HUD (no DOM, no per-frame work),
+  // ?hud=lite keeps it but strips the GPU-expensive CSS (filters, masks, clip-paths, will-change layers, backdrop filters) so the two can be told apart from the 3D scene.
+  const hudParam = game.params?.get('hud'), HUD_OFF = hudParam === '0' || hudParam === 'off', HUD_LITE = hudParam === 'lite';
+  const root = document.createElement('div'); root.className = 'hx-root hidden' + (HUD_LITE ? ' lite' : ''); root.innerHTML = TEMPLATE; host.appendChild(root);
   const q = {}; root.querySelectorAll('[data-k]').forEach((n) => { q[n.dataset.k] = n; });
   const ringEls = [...root.querySelectorAll('.hx-dmg')];
   const V3 = game.THREE.Vector3, _v = new V3();
@@ -77,7 +80,7 @@ export function create(game) {
   let visible = false, wasPaused = false, dead = false, T = 0;
   let dispHP = 100, lastHP = 100, fillF = 1, ghostF = 1, ghostDelay = 0, hpCls = '', dispAR = 0;
   let dispId = null;
-  let kick = 0, gap = 5, lastGap = -1, hmT = 0, hmDur = 0.16, hmKind = 'hit', hmPrev = 0;
+  let kick = 0, gap = 5, lastGap = -1, lastAds = 0, hmT = 0, hmDur = 0.16, hmKind = 'hit', hmPrev = 0;
   let vigA = 0, deadA = 0, hbPhase = 0;
   const inds = ringEls.map((el) => ({ el, life: 0, max: 1, str: 1, x: 0, z: 0 }));
   const fl = { t: 0, dur: 0, peak: 0 };
@@ -187,7 +190,10 @@ export function create(game) {
   function updCross(dt) {
     const p = game.player, sp = p ? Math.hypot(p.vel.x, p.vel.z) : 0;
     kick = damp(kick, 0, 9, dt);
-    const target = 5 + Math.min(sp, 10) * 0.85 + (p && p.grounded === false ? 6 : 0) + kick - (p && p.height < 1.5 ? 1.5 : 0);
+    // aimed (game.weapons.ads 0..1): the crosshair shrinks to a small dot with short thin ticks and hugs the centre; it grows back the moment the aim is released
+    const ae = p && p.alive !== false ? game.weapons?.ads || 0 : 0;
+    if (Math.abs(ae - lastAds) > 0.004) { q.xh.style.setProperty('--a', ae.toFixed(3)); lastAds = ae; }
+    const target = (5 + Math.min(sp, 10) * 0.85 + (p && p.grounded === false ? 6 : 0) + kick - (p && p.height < 1.5 ? 1.5 : 0)) * (1 - 0.6 * ae) + 1.2 * ae;
     gap = damp(gap, target, 16, dt);
     if (Math.abs(gap - lastGap) > 0.1) { q.xh.style.setProperty('--g', gap.toFixed(2)); lastGap = gap; }
     if (hmT > 0) {
@@ -338,7 +344,7 @@ export function create(game) {
   // ---- public API ---------------------------------------------------------------------------------------------------------------
   const H = {
     get visible() { return visible; },
-    show() { visible = true; root.classList.remove('hidden'); },
+    show() { if (HUD_OFF) return; visible = true; root.classList.remove('hidden'); },
     hide() { visible = false; root.classList.add('hidden'); },
     // Big centred wave banner. Newer banners replace the current one.
     banner(text, sub = '', seconds = 2.5) {
@@ -375,7 +381,7 @@ export function create(game) {
     reset() {
       dead = false; root.classList.remove('dead'); T = 0;
       dispHP = lastHP = game.player?.health ?? 100; fillF = ghostF = clamp(dispHP / (game.player?.maxHealth || 100), 0, 1); ghostDelay = 0; hpCls = ''; q.hp.classList.remove('warn', 'crit', 'hit'); dispAR = 0;
-      dispId = null; kick = 0; gap = 5; lastGap = -1; hmT = 0; hmPrev = 0; q.hm.style.opacity = '0';
+      dispId = null; kick = 0; gap = 5; lastGap = -1; lastAds = 0; q.xh.style.setProperty('--a', '0'); hmT = 0; hmPrev = 0; q.hm.style.opacity = '0';
       vigA = deadA = 0; hbPhase = 0; setOpacity(q.vig, 0); setOpacity(q.hb, 0); q.hpnum.style.transform = ''; q.hpnum._pulsed = false;
       for (const it of inds) { it.life = 0; it.el.style.display = 'none'; }
       fl.t = 0; q.flash.style.opacity = '0';

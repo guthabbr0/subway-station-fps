@@ -2,7 +2,7 @@
 // crouch, jump, footsteps, camera recoil (spring) + trauma shake, damage with armour, and a death camera.
 // Yaw convention (three.js): camera.rotation.y = yaw, forward = (-sin(yaw), 0, -cos(yaw)), right = (cos(yaw), 0, -sin(yaw)).
 import * as THREE from 'three';
-import { bus, LAYOUT, clamp, lerp, damp } from './core.js';
+import { bus, LAYOUT, clamp, lerp, damp, LeaveGuard } from './core.js';
 
 // ---- tuning ---------------------------------------------------------------------------------
 const WALK = 6.4, SPRINT = 9.8, CROUCH_SPEED = 3.2; // m/s
@@ -13,6 +13,7 @@ const STAND_H = 1.75, CROUCH_H = 1.2, EYE_DROP = 0.15;
 const STEP = 0.45, AIR_STEP = 0.06, SNAP_DOWN = 0.42;
 const SAFE_Z = LAYOUT.platform.halfW - 0.3, SAFE_X = LAYOUT.platform.x1 - 0.3; // the platform is closed by the edge barrier (|z| = halfW) and the end walls
 const SENS = 0.0022, PITCH_MAX = 1.5;
+const ADS_SPEED = 0.75;                                // movement speed multiplier at full aim-down-sights (weapons.js owns the aim state machine: game.weapons.ads 0..1)
 const BASE_FOV_FALLBACK = 75;
 const easeOutBounce = (t) => {
   if (t < 1 / 2.75) return 7.5625 * t * t;
@@ -33,7 +34,7 @@ export function create(game) {
   let dip = 0, dipV = 0;                            // landing dip spring
   let camSmooth = 0;                                // stair smoothing offset
   let bobPhase = 0, bobAmp = 0, lastStepIdx = 0, footSide = 0;
-  let fovOff = 0, BASE_FOV = BASE_FOV_FALLBACK;
+  let fovOff = 0, BASE_FOV = BASE_FOV_FALLBACK, VIEW_FOV = 55, prevSprintWish = false;
   let jumpBuf = 0, coyote = 0, jumpHeld = false, jumpCut = false, embedT = 0;
   let crouchT = 0;                                  // 0 standing .. 1 crouched (smoothed)
   let lastHurtSnd = -1, lastDamageAt = -10;
@@ -45,7 +46,8 @@ export function create(game) {
     get eye() { return _eye; },
     yaw: 0, pitch: 0, radius: 0.35, height: STAND_H,
     health: 100, armor: 0, maxHealth: 100, alive: true, grounded: true,
-    crouching: false, sprinting: false, speed: 0, eyeHeight: STAND_H - EYE_DROP, rescues: 0, // rescues: times the embedded-in-solid recovery had to move the player (should stay 0)
+    crouching: false, sprinting: false, speed: 0, adsSens: 1, // adsSens: mouse sensitivity multiplier (FOV ratio while aimed)
+    eyeHeight: STAND_H - EYE_DROP, rescues: 0, // rescues: times the embedded-in-solid recovery had to move the player (should stay 0)
   };
 
   const world = () => game.world;
@@ -144,7 +146,7 @@ export function create(game) {
 
   P.reset = () => {
     P.health = 100; P.armor = 0; P.alive = true; P.grounded = true; P.crouching = false; P.sprinting = false;
-    P.height = STAND_H; P.pitch = 0; P.speed = 0; crouchT = 0;
+    P.height = STAND_H; P.pitch = 0; P.speed = 0; crouchT = 0; prevSprintWish = false; P.adsSens = 1;
     trauma = 0; kp = kpv = ky = kyv = 0; roll = hitRoll = hitRollV = 0; dip = dipV = 0; camSmooth = 0;
     bobPhase = bobAmp = 0; lastStepIdx = 0; fovOff = 0; embedT = 0; jumpBuf = coyote = 0; jumpHeld = jumpCut = false; deathT = 0; deathYawTo = null;
     vel.set(0, 0, 0);
@@ -156,10 +158,15 @@ export function create(game) {
     BASE_FOV = BASE_FOV_FALLBACK;
     game.camera.rotation.order = 'YXZ';
     if (game.camera.fov !== BASE_FOV) { game.camera.fov = BASE_FOV; game.camera.updateProjectionMatrix(); }
+    if (game.viewCamera.fov !== VIEW_FOV) { game.viewCamera.fov = VIEW_FOV; game.viewCamera.updateProjectionMatrix(); }
     applyCamera(0, 0, 0);
   };
 
-  P.init = () => { game.camera.rotation.order = 'YXZ'; if (game.camera.fov) BASE_FOV = game.camera.fov; };
+  P.init = () => {
+    game.camera.rotation.order = 'YXZ'; if (game.camera.fov) BASE_FOV = game.camera.fov; if (game.viewCamera?.fov) VIEW_FOV = game.viewCamera.fov;
+    // leave-page guard (a 'beforeunload' prompt while playing / paused; see LeaveGuard in core.js) follows the state machine from the input frame hook
+    game.leaveGuard = new LeaveGuard(game); game.input.frameHooks.push(() => game.leaveGuard.sync());
+  };
 
   // ---- camera composition ---------------------------------------------------------------------
   const nz = (a, b) => Math.sin(shakeT * a + b) * 0.6 + Math.sin(shakeT * a * 1.73 + b * 2.1) * 0.4;
@@ -181,9 +188,13 @@ export function create(game) {
     const yaw = P.yaw + ky + shy;
     const rl = roll + hitRoll + shr + bobRoll + (P.alive ? 0 : deathRoll * deathE);
     cam.rotation.set(pitch, yaw, rl, 'YXZ');
-    // fov
-    const fov = BASE_FOV + fovOff - (P.alive ? 0 : 9 * deathE);
+    // fov: hip = base + the sprint kick; aimed = the weapon's ADS fov (eased by weapons.js; sprint cancels the aim, so the two never fight)
+    const W = game.weapons, ae = P.alive && W ? W.ads : 0, hipFov = BASE_FOV + fovOff;
+    const fov = (ae > 0 ? lerp(hipFov, W.adsFov, ae) : hipFov) - (P.alive ? 0 : 9 * deathE);
     if (Math.abs(fov - curFov) > 0.02) { curFov = fov; cam.fov = fov; cam.updateProjectionMatrix(); }
+    // the viewmodel camera: a weapon may narrow / widen it while aimed so it does not blow up on screen (main.js applySize() only refreshes the projection)
+    const vc = game.viewCamera, vf = ae > 0 && W.adsViewFov ? lerp(VIEW_FOV, W.adsViewFov, ae) : VIEW_FOV;
+    if (vc && Math.abs(vf - vc.fov) > 0.02) { vc.fov = vf; vc.updateProjectionMatrix(); }
     _eye.copy(cam.position);
   }
 
@@ -191,13 +202,17 @@ export function create(game) {
   P.update = (dt) => {
     dt = Math.min(dt, 0.05); if (!(dt > 0)) dt = 0.0001;
     clock += dt; shakeT += dt;
-    const inp = game.input;
+    const inp = game.input, Wm = game.weapons;
+    Wm?.stepAds?.(dt); // advance the aim blend first: FOV, sensitivity, speed and the pose all use the same fresh value this frame
+    const adsE = Wm && P.alive ? Wm.ads : 0;
     const acting = game.state === 'playing' && P.alive;
 
-    // -- look --
+    // -- look (sensitivity follows the FOV while aimed: the same mouse travel sweeps the same fraction of the screen) --
     if (acting) {
       const dx = clamp(inp.mouseDX, -400, 400), dy = clamp(inp.mouseDY, -400, 400);
-      P.yaw -= dx * SENS; P.pitch = clamp(P.pitch - dy * SENS, -PITCH_MAX, PITCH_MAX);
+      P.adsSens = adsE > 0 ? Math.tan(lerp(BASE_FOV, Wm.adsFov, adsE) * Math.PI / 360) / Math.tan(BASE_FOV * Math.PI / 360) : 1;
+      const sens = SENS * P.adsSens;
+      P.yaw -= dx * sens; P.pitch = clamp(P.pitch - dy * sens, -PITCH_MAX, PITCH_MAX);
     } else if (!P.alive && deathYawTo !== null) {
       // turn slowly to face what killed us
       let d = deathYawTo - P.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); P.yaw += d * Math.min(1, dt * 2.2);
@@ -211,7 +226,7 @@ export function create(game) {
       if (inp.down('KeyS') || inp.down('ArrowDown')) iz -= 1;
       if (inp.down('KeyD') || inp.down('ArrowRight')) ix += 1;
       if (inp.down('KeyA') || inp.down('ArrowLeft')) ix -= 1;
-      wantCrouch = inp.down('KeyC') || inp.down('ControlLeft') || inp.down('ControlRight');
+      wantCrouch = inp.down('KeyC'); // crouch is C only: Ctrl is a browser modifier (Ctrl+W closes the tab), Input ignores every key pressed with Ctrl held
       wantSprint = (inp.down('ShiftLeft') || inp.down('ShiftRight')) && iz > 0;
       jumpPressed = inp.pressed('Space');
       jumpHeld = inp.down('Space');
@@ -230,9 +245,13 @@ export function create(game) {
     P.crouching = crouching;
     crouchT = damp(crouchT, crouching ? 1 : 0, 15, dt);
     P.height = lerp(STAND_H, CROUCH_H, crouchT);
-    const sprinting = wantSprint && !crouching && P.alive;
+    // sprint and aim cancel each other, the last input wins: starting to sprint drops the aim, an armed aim (RMB) blocks the sprint
+    const sprintWish = wantSprint && !crouching && P.alive; // (crouched, Shift + W does not sprint and must not drop a crouch-aim either)
+    if (sprintWish && !prevSprintWish && Wm?.adsHeld) Wm.cancelAds('sprint');
+    prevSprintWish = sprintWish;
+    const sprinting = sprintWish && !(Wm && Wm.adsHeld);
     P.sprinting = sprinting;
-    const maxSpd = crouching ? CROUCH_SPEED : sprinting ? SPRINT : WALK;
+    const maxSpd = (crouching ? CROUCH_SPEED : sprinting ? SPRINT : WALK) * (1 - (1 - ADS_SPEED) * adsE);
 
     // -- jump buffering / coyote --
     if (jumpPressed) jumpBuf = 0.12; else jumpBuf = Math.max(0, jumpBuf - dt);
@@ -342,7 +361,7 @@ export function create(game) {
         game.audio?.play('step', undefined, { volume: crouching ? 0.22 : sprinting ? 0.62 : 0.42, rate: footSide ? 0.94 : 1.06 });
       }
     }
-    const bobTarget = moving ? clamp(P.speed / WALK, 0.3, 1.5) * (crouching ? 0.6 : 1) : 0;
+    const bobTarget = moving ? clamp(P.speed / WALK, 0.3, 1.5) * (crouching ? 0.6 : 1) * (1 - 0.5 * adsE) : 0;
     bobAmp = damp(bobAmp, bobTarget, moving ? 9 : 7, dt);
     const ph = bobPhase * Math.PI * 2;
     const bobY = Math.cos(ph) * 0.03 * bobAmp + Math.sin(clock * 1.7) * 0.0035 * (1 - clamp(bobAmp, 0, 1));
@@ -358,7 +377,7 @@ export function create(game) {
     dipV = (dipV - 200 * dip * dt) / (1 + 28 * dt); dip += dipV * dt; dip = clamp(dip, -0.35, 0.12);
     hitRollV = (hitRollV - 170 * hitRoll * dt) / (1 + 20 * dt); hitRoll += hitRollV * dt; hitRoll = clamp(hitRoll, -0.25, 0.25);
     const strafeV = (vel.x * cy - vel.z * sy) / WALK; // velocity along camera-right
-    roll = damp(roll, P.alive ? clamp(-strafeV, -1.3, 1.3) * 0.032 : 0, 9, dt);
+    roll = damp(roll, P.alive ? clamp(-strafeV, -1.3, 1.3) * 0.032 * (1 - 0.6 * adsE) : 0, 9, dt);
     trauma = Math.max(0, trauma - dt * 1.5);
 
     // -- fov kick --

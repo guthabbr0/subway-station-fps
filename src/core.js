@@ -147,20 +147,70 @@ export class World {
   }
 }
 
+// ---- keyboard / mouse -------------------------------------------------------------------------------------------------------------
+// Keys the page must own while the pointer is locked: without preventDefault they scroll the page, move focus (Tab), navigate history (Backspace,
+// Alt+Left/Right) or open browser UI (F1 help, F10 menu bar, a bare Alt press). NOT in this list on purpose: F5 (reload), F11 (fullscreen), F12 (devtools),
+// F3 / F4 / F6 (the perf overlay and the debug bisect keys), Escape (releases the pointer lock).
+const NAV_KEYS = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'PageUp', 'PageDown', 'Home', 'End', 'ContextMenu', 'F1', 'F2', 'F7', 'F8', 'F9', 'F10', 'AltLeft', 'AltRight']);
+// Ctrl+<key> page shortcuts that are safe (and useful) to swallow while playing: save, print, find, view-source, bookmark, select-all, history, open, address bar...
+// NOT swallowed: Ctrl+R / F5 (reload), Ctrl+Shift+I/J/C (devtools), Ctrl +/-/0 (zoom). Ctrl+W / T / N / Q / Tab / PageUp / PageDown / 1..9 are reserved by the browser:
+// a page can never intercept them, see LeaveGuard below.
+const CTRL_SWALLOW = new Set(['KeyS', 'KeyP', 'KeyF', 'KeyG', 'KeyU', 'KeyD', 'KeyA', 'KeyH', 'KeyO', 'KeyE', 'KeyK', 'KeyL', 'KeyB', 'KeyY', 'KeyJ']);
+const CHORD_KEYS = new Set(['ControlLeft', 'ControlRight', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight']);
+
 export class Input {
   constructor(el) {
     this.keys = new Set(); this.pressedKeys = new Set(); this.mouse = [false, false, false];
     this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; this.locked = false; this.el = el;
-    addEventListener('keydown', (e) => { if (!e.repeat) this.pressedKeys.add(e.code); this.keys.add(e.code); if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code) && this.locked) e.preventDefault(); });
+    this.frameHooks = []; // called once per frame from endFrame() in EVERY game state (menu / playing / paused / dead): modules that must stay in sync with the state machine register here
+    addEventListener('keydown', (e) => {
+      const chord = e.ctrlKey || e.metaKey;
+      if (this.locked && (NAV_KEYS.has(e.code) || (chord && !e.shiftKey && CTRL_SWALLOW.has(e.code)) || (e.altKey && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')))) e.preventDefault();
+      // Ctrl / Cmd are not game keys (crouch is C): a key pressed WITH Ctrl held is a browser shortcut (Ctrl+W closes the tab, Ctrl+T / Ctrl+N open one) and must never move the player
+      if (chord || CHORD_KEYS.has(e.code)) return;
+      if (!e.repeat) this.pressedKeys.add(e.code); this.keys.add(e.code);
+    });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('mousedown', (e) => { if (this.locked) this.mouse[e.button] = true; });
-    addEventListener('mouseup', (e) => { this.mouse[e.button] = false; });
+    // middle click (autoscroll) and the two side buttons of gaming mice (history back / forward) are swallowed while playing
+    const side = (e) => { if (this.locked && (e.button === 1 || e.button === 3 || e.button === 4)) e.preventDefault(); };
+    addEventListener('mousedown', (e) => { if (this.locked) this.mouse[e.button] = true; side(e); });
+    addEventListener('mouseup', (e) => { this.mouse[e.button] = false; side(e); });
+    addEventListener('auxclick', side);
     addEventListener('mousemove', (e) => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
-    addEventListener('wheel', (e) => { if (this.locked) this.wheel += Math.sign(e.deltaY); }, { passive: true });
+    addEventListener('wheel', (e) => { if (this.locked && !e.ctrlKey && !e.metaKey) this.wheel += Math.sign(e.deltaY); }, { passive: true }); // Ctrl + wheel is the browser's page zoom, not a weapon switch
     addEventListener('contextmenu', (e) => e.preventDefault());
-    addEventListener('blur', () => { this.keys.clear(); this.mouse.fill(false); });
+    const release = () => { this.keys.clear(); this.mouse.fill(false); };
+    addEventListener('blur', release);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
   }
   down(code) { return this.keys.has(code); }
   pressed(code) { return this.pressedKeys.has(code); }
-  endFrame() { this.pressedKeys.clear(); this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; }
+  endFrame() { this.pressedKeys.clear(); this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; for (let i = 0; i < this.frameHooks.length; i++) this.frameHooks[i](); }
+}
+
+// Leave-page guard. A page CANNOT block Ctrl+W / Ctrl+T / Ctrl+N / Ctrl+Tab / Alt+F4 (the browser handles them before any script sees the key), and losing pointer lock for a
+// millisecond while spamming keys is enough to hit one by accident. The only mechanism a page has is a 'beforeunload' handler: while the game is being played (or is paused) the browser
+// then asks "Leave site?" before it closes the tab / reloads / navigates, and one Enter / Esc press undoes the mistake. It is installed ONLY while game.state is 'playing' or 'paused'
+// (never on the menu / game-over overlay, so leaving from there is instant) and never in the headless test modes (?manual / ?nolock), which must be able to close the page without a dialog.
+// Chrome shows the prompt only after the page had a user gesture: the player has always clicked "Enter the station" by then.
+export class LeaveGuard {
+  constructor(game) {
+    this.game = game; this.on = false; this.force = null; // force: true / false overrides the test-mode rule (used by tools/weapon-audit to exercise the handler)
+    this.released = false; // release(): the game is about to reload / navigate on purpose (e.g. after a lost GPU context): no prompt
+    this.handler = (e) => { e.preventDefault(); e.returnValue = 'Leave the station? Your run will be lost.'; return e.returnValue; };
+  }
+  release() { this.released = true; this.sync(); }
+  wanted() {
+    const g = this.game;
+    if (this.released) return false;
+    if (this.force !== null) return !!this.force && (g.state === 'playing' || g.state === 'paused');
+    if (g.testMode || g.manual || g.params?.has('nolock') || g.params?.has('manual') || g.params?.has('noguard')) return false;
+    return g.state === 'playing' || g.state === 'paused';
+  }
+  sync() {
+    const want = this.wanted();
+    if (want === this.on) return;
+    this.on = want;
+    if (want) addEventListener('beforeunload', this.handler); else removeEventListener('beforeunload', this.handler);
+  }
 }

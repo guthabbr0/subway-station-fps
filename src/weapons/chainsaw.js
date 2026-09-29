@@ -2,6 +2,8 @@
 //   gameplay : Doom II chainsaw, better. 4 tics (4/35 s) per attack while fire is held, 2*(1d10) damage, 2.05 m reach, no ammo. Sawing a target drags you
 //              in and swings the view onto it (stops a body-length short of the target, never through enemies / walls / the platform edge; running away or
 //              turning the mouse overrides it); enemies.js decides on gibs (it shreds ~60% of saw kills); secondary fire (right mouse) revs the engine.
+//              RIGHT MOUSE therefore has NO aim-down-sights here (adsSpec = null: the aim manager in weapons.js ignores weapons without one, and the chainsaw keeps ctx.alt for the rev).
+//              hip pose: the saw points (almost) straight ahead, lower right (saw.rotation = 8 deg inward, a touch of pitch so the guide bar stays readable from behind).
 //   viewmodel: two-handed orange/black two-stroke saw, real instanced chain that motion-blurs with engine rpm, tremor scaled by rpm + load, pull-cord start
 //              (left hand yanks the starter, the saw jerks, the engine catches with a shudder and a puff), exhaust smoke, oil fling, sparks on masonry/metal,
 //              blood that accumulates on the bar / chain / gloves and slowly wipes off, gore flecks flung at the lens.
@@ -54,7 +56,7 @@ export default class Chainsaw extends Weapon {
     const g = this.game, kit = getKit(g), model = new THREE.Group();
     this.S = buildSaw(g, kit, this.U);
     const S = this.S; this.saw = S.saw; this.chain = S.chain; this.handR = S.handR; this.handL = S.handL; this.idxF = S.idxF; this.trigger = S.trigger; this.cord = S.cord; this.pts = S.pts;
-    model.add(S.saw); this.saw.rotation.set(0.16, 0.62, -0.08);
+    model.add(S.saw); this.saw.rotation.set(0.10, 0.14, 0); // straight ahead: the bar points along the view axis (no cant), RMB revs the engine (no ADS)
     for (const h of [S.handL, S.handR]) h.arm.scale.set(0.7, 0.7, 1);
     this.muzzle = S.pts.nose;
     this.fx = new SawFX(g);

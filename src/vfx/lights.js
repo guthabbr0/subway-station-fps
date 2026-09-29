@@ -18,6 +18,8 @@ export class LightPool {
   }
   // Claims the dimmest light (or refreshes a nearby one of the same hue). Returns the light or null when everything is brighter.
   claim(pos, color, intensity, dur, distance = 12) {
+    // one light with a NaN position / intensity turns EVERY lit pixel in range into NaN (a whole-frame black flash): refuse such requests
+    if (!pos || !Number.isFinite(pos.x + pos.y + pos.z + intensity + dur + distance)) return null;
     _c.set(color);
     const eff = effIntensity(intensity);
     let best = -1, bestCur = Infinity, merge = -1;

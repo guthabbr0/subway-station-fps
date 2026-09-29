@@ -78,7 +78,7 @@ export function buildLighting(c) {
   const tg = new THREE.BufferGeometry(); { const m = new MB(1); for (const dz of [-0.045, 0.045]) m.box(-0.6, 0.0, dz - 0.014, 0.6, 0.028, dz + 0.014, { c: [1, 1, 1], seg: 5 }); const g = m.build(); tg.copy(g); }
   const tubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true, vertexColors: true });
   const tubes = new THREE.InstancedMesh(tg, tubeMat, fixtures.length), mtx = new THREE.Matrix4();
-  fixtures.forEach((f, i) => { mtx.makeTranslation(f.x, f.y - 0.004, f.z); tubes.setMatrixAt(i, mtx); tubes.setColorAt(i, HOT); });
+  fixtures.forEach((f, i) => { mtx.makeTranslation(f.x, f.y - 0.014, f.z); tubes.setMatrixAt(i, mtx); tubes.setColorAt(i, HOT); }); // (-14 mm: at -4 mm the tube was 1 mm from the housing's dark frame strips = z-fighting bright/black along the whole ceiling from ~25 m)
   tubes.frustumCulled = false; c.add(tubes); L.tubes = tubes;
   // halos
   const halo = radialTex(128, [[0, 'rgba(255,255,255,0.9)'], [0.25, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
@@ -118,11 +118,11 @@ export function buildLighting(c) {
       }`,
     fragmentShader: `uniform vec3 uColor; uniform float uGain; varying float vI; varying float vH; varying vec3 vN; varying vec3 vV;
       #include <fog_pars_fragment>
-      void main(){ float f = abs(dot(normalize(vN), normalize(vV))); f = pow(f, 1.7); float a = f * pow(1.0 - vH, 1.4) * vI * uGain;
+      void main(){ float f = abs(dot(vN * inversesqrt(max(dot(vN, vN), 1e-8)), vV * inversesqrt(max(dot(vV, vV), 1e-8)))); f = pow(f, 1.7); float a = f * pow(clamp(1.0 - vH, 0.0, 1.0), 1.4) * vI * uGain;
       #ifdef USE_FOG
         a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
       #endif
-      gl_FragColor = vec4(uColor, a); }`,
+      gl_FragColor = vec4(uColor, clamp(a, 0.0, 1.0)); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: true,
   });
   const coneMesh = new THREE.Mesh(cg, coneMat); coneMesh.frustumCulled = false; coneMesh.renderOrder = 3; c.add(coneMesh);

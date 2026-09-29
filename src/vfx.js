@@ -329,6 +329,7 @@ export function create(game) {
     setBudget(fx = 1, dec = 1) { add.setBudget(fx); alp.setBudget(fx); decals.setBudget(dec); },
 
     update(dt) {
+      if (!(dt >= 0)) dt = 0; else if (dt > 0.25) dt = 0.25; // a NaN / huge step would poison T (every GPU-animated tracer / decal reads uTime) for the rest of the session
       T += dt; uTime.value = T; stainBudget = 8; impactBudget = Math.min(20, impactBudget + dt * 60);
       lights.update(dt);
       add.update(dt); alp.update(dt);

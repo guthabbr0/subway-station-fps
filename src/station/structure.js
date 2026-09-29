@@ -102,6 +102,8 @@ function endWalls(c) {
 }
 
 function outerWalls(c) {
+  // (boxes are given wall-first for s = -1 too: z0 > z1 made them inside-out, their only visible face then sat exactly ON the wall plane = z-fighting with the wall tiles, and the trays / cornice / dado / skirting had no depth)
+  const sbox = (mb, x0, y0, za, x1, y1, zb, o) => mb.box(x0, y0, Math.min(za, zb), x1, y1, Math.max(za, zb), o);
   for (const s of [1, -1]) {
     const zF = s * WZ;
     for (const [y0, y1, key, tint] of BANDS) {
@@ -111,19 +113,19 @@ function outerWalls(c) {
     }
     // pit-wall cable trays with bundles
     for (const [y, n] of [[-0.6, 5], [-0.05, 4]]) {
-      c.mb('steel').box(X0, y, s * (WZ - 0.32), X1, y + 0.05, s * (WZ - 0.02), { seg: 200, c: [0.42, 0.42, 0.46] });
+      sbox(c.mb('steel'), X0, y, s * (WZ - 0.32), X1, y + 0.05, s * (WZ - 0.02), { seg: 200, c: [0.42, 0.42, 0.46] });
       const cols = [[0.08, 0.08, 0.1], [0.5, 0.05, 0.05], [0.06, 0.12, 0.45], [0.35, 0.35, 0.38], [0.08, 0.08, 0.1], [0.55, 0.42, 0.05]];
       for (let i = 0; i < n; i++) c.mb('cable').cyl(X0, y + 0.085, s * (WZ - 0.26 + i * 0.05), X1, y + 0.085, s * (WZ - 0.26 + i * 0.05), 0.024, { segs: 5, c: cols[i % cols.length] });
-      for (let x = X0 + 1.5; x < X1; x += 3) c.mb('steel').box(x - 0.03, y - 0.2, s * (WZ - 0.03), x + 0.03, y + 0.06, s * (WZ - 0.0), { c: [0.3, 0.3, 0.33] });
+      for (let x = X0 + 1.5; x < X1; x += 3) sbox(c.mb('steel'), x - 0.03, y - 0.2, s * (WZ - 0.03), x + 0.03, y + 0.06, s * (WZ - 0.0), { c: [0.3, 0.3, 0.33] });
     }
     // vertical drain / down pipes every 16 m and a service conduit at 2.9 m
-    for (let x = -24; x <= 24; x += 16) { c.mb('steel').cyl(x, BED, s * (WZ - 0.09), x, 6.9, s * (WZ - 0.09), 0.07, { segs: 8, c: [0.5, 0.52, 0.56] }); for (let y = -1; y < 7; y += 1.6) c.mb('steel').box(x - 0.11, y, s * (WZ - 0.13), x + 0.11, y + 0.05, s * (WZ - 0.0), { c: [0.3, 0.3, 0.33] }); }
+    for (let x = -24; x <= 24; x += 16) { c.mb('steel').cyl(x, BED, s * (WZ - 0.09), x, 6.9, s * (WZ - 0.09), 0.07, { segs: 8, c: [0.5, 0.52, 0.56] }); for (let y = -1; y < 7; y += 1.6) sbox(c.mb('steel'), x - 0.11, y, s * (WZ - 0.13), x + 0.11, y + 0.05, s * (WZ - 0.0), { c: [0.3, 0.3, 0.33] }); }
     c.mb('galv').cyl(X0, 3.35, s * (WZ - 0.12), X1, 3.35, s * (WZ - 0.12), 0.05, { segs: 6, c: [0.9, 0.9, 0.95] });
     // cornice above the tile
-    c.mb('concrete').box(X0, 2.72, s * (WZ - 0.1), X1, 2.8, s * WZ, { seg: 4, c: [0.55, 0.6, 0.65] });
-    c.mb('paint').box(X0, 2.6, s * (WZ - 0.05), X1, 2.72, s * WZ, { seg: 4, c: [0.9, 0.9, 0.9], skip: 'ny' });
+    sbox(c.mb('concrete'), X0, 2.72, s * (WZ - 0.1), X1, 2.8, s * WZ, { seg: 4, c: [0.55, 0.6, 0.65] });
+    sbox(c.mb('paint'), X0, 2.6, s * (WZ - 0.05), X1, 2.72, s * WZ, { seg: 4, c: [0.9, 0.9, 0.9], skip: 'ny' });
     // skirting at platform level
-    c.mb('tileDark').box(X0, 0, s * (WZ - 0.05), X1, 0.14, s * WZ, { seg: 4, c: [0.9, 0.9, 0.9] });
+    sbox(c.mb('concrete'), X0, 0, s * (WZ - 0.05), X1, 0.14, s * WZ, { seg: 4, c: [0.9, 0.9, 0.9] });
   }
 }
 

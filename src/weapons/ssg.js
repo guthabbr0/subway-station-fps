@@ -23,7 +23,9 @@ const HOLD = [0.0, -0.002, -0.238], LOADP = [-0.006, 0.100, -0.030], AWAY = [-0.
 export default class SuperShotgun extends Weapon {
   constructor(game) {
     super(game, { id: 'ssg', name: 'SUPER SHOTGUN', slot: 3, ammoType: 'shells', ammoPerShot: 2, raiseTime: 0.40, lowerTime: 0.24 });
-    this.rest.set(0.20, -0.24, -0.55); this.viewYaw = 0.62; this.viewPitch = 0.08;
+    this.rest.set(0.12, -0.235, -0.55);
+    // ADS: down the rib between the barrels, brass bead at the muzzle end (the two hammers frame the view)
+    this.adsSpec = { fov: 62, vfov: 62, depth: 0.36, rear: [0, 0.14, 0.10], front: [0, 0.0662, -0.628], spread: 0.6 };
     this.t = 99; this._pf = false; this._edge = false; this._dbgT = null; this.held = false;
     this.ev = { open: true, eject: true, load: true, close: true, fresh: false };
   }
@@ -198,8 +200,9 @@ export default class SuperShotgun extends Weapon {
     // recoil flip, break-open tilt (gun rolls so the breech faces the player), breathing, raise
     const flip = keyframe(K_FLIP, tt, smooth);
     const tilt = open;
-    this.gun.rotation.set(flip * 0.07 + tilt * 0.26, tilt * 0.05, -tilt * 0.24);
-    this.gun.position.set(-tilt * 0.015, 0.004 - tilt * 0.03, -0.10 + flip * 0.03 + tilt * 0.03);
+    const rk = this.recoilK; // x0.7 while aimed
+    this.gun.rotation.set(flip * 0.07 * rk + tilt * 0.26, tilt * 0.05, -tilt * 0.24);
+    this.gun.position.set(-tilt * 0.015, 0.004 - tilt * 0.03, -0.10 + flip * 0.03 * rk + tilt * 0.03);
     this.model.position.set(Math.sin(tm * 1.1) * 0.0009, Math.sin(tm * 1.6) * 0.0014, 0);
     this.model.rotation.set(-(1 - r) * 0.4 + Math.sin(tm * 1.3) * 0.002 + this.viewPitch, this.viewYaw, -(1 - r) * 0.12);
   }

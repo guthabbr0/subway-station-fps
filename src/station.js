@@ -12,6 +12,7 @@ import { buildEnds } from './station/ends.js';
 import { buildSignage } from './station/signage.js';
 import { buildFX } from './station/fx.js';
 import { buildLife } from './station/life.js';
+import { installLayers } from './station/layers.js';
 
 export function create(game) {
   const S = {
@@ -38,11 +39,13 @@ export function create(game) {
     light.buildEnv?.(); lap('env');
     S.spawnPoints = c.spawnPoints; S.pickupPoints = c.pickupPoints;
     S.buildMs = Math.round(performance.now() - t0); S.timing = T;
+    installLayers(game); // F7 / ?layer=: human bisect of scene layers (src/station/layers.js)
   };
 
   S.update = (dt, time) => {
     S.t += dt;
     for (let i = 0; i < updaters.length; i++) updaters[i](dt, S.t);
+    game.layers?.update?.(dt);
   };
   S.reset = () => { if (S.lighting) { S.lighting.warn.t = 0; S.lighting.warn.target = 0; } };
   return S;
