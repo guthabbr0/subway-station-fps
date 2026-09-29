@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Last Train: Station Zero</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23111'/%3E%3Cpath d='M3 11h10v2H3zM4 4h8v6H4z' fill='%23ffb020'/%3E%3C/svg%3E">
+<style>
+  :root { --bg:#07090c; --fg:#e8e2d4; --accent:#ffb020; --red:#d63a2a; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family: "Bahnschrift","DIN Alternate","Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  #game { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #hud { position:fixed; inset:0; pointer-events:none; }
+  .overlay { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center;
+    background:radial-gradient(ellipse at center, rgba(10,12,16,.72), rgba(3,4,6,.94)); z-index:10; padding:24px; }
+  #menu { display:flex; }
+  h1 { margin:0; font-size:clamp(34px,7vw,84px); letter-spacing:.08em; text-transform:uppercase; line-height:1; }
+  h1 span { color:var(--accent); }
+  .sub { opacity:.75; letter-spacing:.25em; text-transform:uppercase; font-size:13px; }
+  button { font:inherit; font-size:20px; letter-spacing:.2em; text-transform:uppercase; padding:14px 42px; color:#111; background:var(--accent); border:0; cursor:pointer; box-shadow:0 0 0 2px #000, 6px 6px 0 #000; }
+  button:hover { filter:brightness(1.12); }
+  .keys { display:grid; grid-template-columns:auto auto; gap:6px 22px; font-size:14px; opacity:.85; text-align:left; margin-top:6px; }
+  .keys b { color:var(--accent); font-weight:600; }
+  label { font-size:14px; opacity:.85; cursor:pointer; }
+  #dead h1 { color:var(--red); }
+  #credits { z-index:12; justify-content:flex-start; overflow-y:auto; gap:10px; padding:32px 24px 40px; background:rgba(4,5,7,.985); }
+  #credits h2 { margin:0; font-size:clamp(22px,4vw,38px); letter-spacing:.14em; text-transform:uppercase; }
+  #credits h2 span { color:var(--accent); }
+  #credits .cr-intro { max-width:760px; font-size:13px; line-height:1.5; opacity:.8; }
+  #credits .cr-list { max-width:820px; width:100%; margin:6px 0 0; padding:0; list-style:none; text-align:left; font-size:13px; line-height:1.45; }
+  #credits .cr-list li { padding:7px 0 7px 14px; border-left:2px solid rgba(255,176,32,.55); margin:0 0 6px; background:rgba(255,255,255,.03); }
+  #credits .cr-list b { color:var(--fg); font-weight:600; }
+  #credits .cr-list .cr-meta { opacity:.65; font-size:12px; display:block; }
+  #credits a { color:var(--accent); text-decoration:none; }
+  #credits a:hover { text-decoration:underline; }
+  #credits details { max-width:820px; width:100%; text-align:left; font-size:12px; opacity:.85; }
+  #credits summary { cursor:pointer; letter-spacing:.14em; text-transform:uppercase; padding:6px 0; }
+  #credits .cr-h { max-width:820px; width:100%; text-align:left; margin:10px 0 0; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); }
+  button.ghost { font-size:12px; padding:7px 16px; letter-spacing:.2em; color:var(--fg); background:transparent; box-shadow:none; border:1px solid rgba(232,226,212,.4); opacity:.8; }
+  button.ghost:hover { opacity:1; border-color:var(--accent); color:var(--accent); filter:none; }
+  #loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:var(--bg); z-index:20; letter-spacing:.3em; text-transform:uppercase; font-size:14px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<div id="loading">Loading station…</div>
+<div id="menu" class="overlay">
+  <div class="sub">Northline · Platform 2 · 00:47</div>
+  <h1>Last Train<br><span>Station Zero</span></h1>
+  <div class="sub">Survive every train. There is no last stop.</div>
+  <button id="start">Enter the station</button>
+  <label><input type="checkbox" id="opt-arsenal"> Start with the full arsenal</label>
+  <button id="credits-btn" class="ghost" type="button">Credits</button>
+  <div class="keys">
+    <div><b>WASD</b> move</div><div><b>Mouse</b> aim · <b>LMB</b> fire</div>
+    <div><b>Shift</b> sprint</div><div><b>Space</b> jump · <b>C</b> crouch</div>
+    <div><b>1–7</b> weapons (repeat to toggle)</div><div><b>Wheel / Q</b> cycle / last weapon</div>
+  </div>
+</div>
+<div id="credits" class="overlay" role="dialog" aria-modal="true" aria-labelledby="credits-title">
+  <h2 id="credits-title">Audio <span>credits</span></h2>
+  <div class="cr-intro">Most sounds in this game are synthesised in code. The recorded clips below are third-party material used under Creative Commons licences and were edited for this game (excerpted, trimmed, filtered, level-normalised, converted to Ogg Vorbis; some pitch-shifted or layered). Thank you to the authors.</div>
+  <div class="cr-h">Attribution (CC BY)</div>
+  <ul class="cr-list" id="cr-by"><li>Loading&hellip;</li></ul>
+  <details><summary>CC0 / public-domain sources (no attribution required)</summary><ul class="cr-list" id="cr-free"></ul></details>
+  <button id="credits-close" type="button">Back</button>
+</div>
+<div id="paused" class="overlay"><h1>Paused</h1><div class="sub">Click to resume</div></div>
+<div id="dead" class="overlay"><h1>You died</h1><div class="sub" id="dead-stats"></div><button id="restart">Try again</button></div>
+<script>
+// Credits overlay (menu). Reads assets/audio/credits.json (built by tools/build-credits.mjs); independent of the game code.
+(() => {
+  const $ = (id) => document.getElementById(id), box = $('credits'); let loaded = false;
+  const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+  const link = (href, text) => { const a = el('a', text); if (/^https?:\/\//.test(href || '')) { a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; } return a; };
+  const LIC = { 'CC-BY-3.0': 'CC BY 3.0', 'CC-BY-4.0': 'CC BY 4.0', 'CC0': 'CC0 1.0', 'CC0-1.0': 'CC0 1.0', 'Public-Domain': 'Public domain' };
+  function group(rows) { const m = new Map(); for (const r of rows) { const k = [r.title, r.author, r.sourceUrl].join('|'); if (!m.has(k)) m.set(k, { ...r, n: 0 }); m.get(k).n++; } return [...m.values()]; }
+  function fill(ul, rows, withNote) {
+    ul.textContent = '';
+    for (const r of rows) {
+      const li = el('li'); li.append(el('b', '\u201c' + (r.title || r.file) + '\u201d'), document.createTextNode(' by ' + (r.author || 'unknown') + ' \u2014 '), link(r.licenseUrl, LIC[r.license] || r.license || 'licence'));
+      if (r.sourceUrl) { li.append(document.createTextNode(' \u2014 '), link(r.sourceUrl, 'source')); }
+      if (withNote) li.append(el('span', 'Modified. ' + r.n + (r.n > 1 ? ' clips' : ' clip') + ' used.', 'cr-meta'));
+      ul.append(li);
+    }
+    if (!rows.length) ul.append(el('li', 'none'));
+  }
+  async function load() {
+    if (loaded) return;
+    try {
+      const res = await fetch('assets/audio/credits.json', { cache: 'no-cache' }); if (!res.ok) throw new Error(res.status);
+      const rows = await res.json(), by = rows.filter((r) => /^CC[- ]?BY/i.test(r.license)), free = rows.filter((r) => !/^CC[- ]?BY/i.test(r.license));
+      fill($('cr-by'), group(by), true); fill($('cr-free'), group(free), false); loaded = true;
+    } catch (e) { $('cr-by').textContent = ''; $('cr-by').append(el('li', 'Credits list unavailable (assets/audio/credits.json could not be loaded).')); }
+  }
+  const open = () => { box.style.display = 'flex'; load(); $('credits-close').focus({ preventScroll: true }); };
+  const close = () => { box.style.display = 'none'; $('start').focus({ preventScroll: true }); };
+  $('credits-btn').addEventListener('click', (e) => { e.stopPropagation(); open(); });
+  $('credits-close').addEventListener('click', (e) => { e.stopPropagation(); close(); });
+  addEventListener('keydown', (e) => { if (e.code === 'Escape' && box.style.display === 'flex') { e.stopPropagation(); close(); } }, true);
+})();
+</script>
+</body>
+<script type="module" src="./src/main.js"></script>
+</html>

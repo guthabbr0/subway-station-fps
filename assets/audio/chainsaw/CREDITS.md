@@ -1,0 +1,14 @@
+# Chainsaw sound credits
+
+Only clips obtained from sources that permit automated retrieval are shipped (OpenGameArt, Wikimedia Commons). 28 further candidates from freesound.org and bigsoundbank.com were removed because those sites disallow bot downloads; add them by hand from the original pages if wanted.
+
+- **sawHit_03.ogg** — "8 wet squish, slurp impacts (impactsplat02)" by Independent.nu / Johannes Pinter (submitted to OpenGameArt by qubodup) — CC0 1.0 — https://opengameart.org/content/8-wet-squish-slurp-impacts
+- **sawGore_04.ogg** — "2 wooden squish splatter sequences (crack11)" by Independent.nu / Johannes Pinter (submitted to OpenGameArt by qubodup) — CC0 1.0 — https://opengameart.org/content/2-wooden-squish-splatter-sequences
+- **sawIdle_04.ogg** — "WWS Chainsaw.ogg (Stihl MS 150C chainsaw)" by Work With Sounds / Werstas (sound recordist: Leena Ahonen), provided to Wikimedia Commons via Wikimedia Sverige — CC BY 4.0 — https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg
+  - Attribution: "WWS Chainsaw.ogg" by Work With Sounds / Werstas (sound recordist Leena Ahonen), provided to Wikimedia Commons in cooperation with Wikimedia Sverige (https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+- **sawFull_05.ogg** — "WWS Chainsaw.ogg (Stihl MS 150C chainsaw)" by Work With Sounds / Werstas (sound recordist: Leena Ahonen), provided to Wikimedia Commons via Wikimedia Sverige — CC BY 4.0 — https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg
+  - Attribution: "WWS Chainsaw.ogg" by Work With Sounds / Werstas (sound recordist Leena Ahonen), provided to Wikimedia Commons in cooperation with Wikimedia Sverige (https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+- **sawRev_05.ogg** — "WWS Chainsaw.ogg (Stihl MS 150C chainsaw)" by Work With Sounds / Werstas (sound recordist: Leena Ahonen), provided to Wikimedia Commons via Wikimedia Sverige — CC BY 4.0 — https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg
+  - Attribution: "WWS Chainsaw.ogg" by Work With Sounds / Werstas (sound recordist Leena Ahonen), provided to Wikimedia Commons in cooperation with Wikimedia Sverige (https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+- **sawRev_06.ogg** — "WWS Chainsaw.ogg (Stihl MS 150C chainsaw)" by Work With Sounds / Werstas (sound recordist: Leena Ahonen), provided to Wikimedia Commons via Wikimedia Sverige — CC BY 4.0 — https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg
+  - Attribution: "WWS Chainsaw.ogg" by Work With Sounds / Werstas (sound recordist Leena Ahonen), provided to Wikimedia Commons in cooperation with Wikimedia Sverige (https://commons.wikimedia.org/wiki/File:WWS_Chainsaw.ogg), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
